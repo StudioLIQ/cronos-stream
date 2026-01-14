@@ -1,8 +1,12 @@
 import express from 'express';
 import cors from 'cors';
 import { logger } from './logger.js';
+import { getDb } from './db/db.js';
 
 const PORT = parseInt(process.env.API_PORT || '3402', 10);
+
+// Initialize database
+getDb();
 
 const app = express();
 
