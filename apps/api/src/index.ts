@@ -1,11 +1,13 @@
 import express from 'express';
 import cors from 'cors';
 import { logger } from './logger.js';
+import { config, logConfig } from './config.js';
 import { getDb, queryOne, queryAll } from './db/db.js';
 import { seed } from './db/seed.js';
 import { addClient, broadcast } from './sse/broker.js';
 
-const PORT = parseInt(process.env.API_PORT || '3402', 10);
+// Log configuration
+logConfig();
 
 // Initialize database and seed
 getDb();
@@ -80,8 +82,8 @@ app.use(
 );
 
 // Start server
-app.listen(PORT, () => {
-  logger.info(`API server listening on port ${PORT}`);
+app.listen(config.apiPort, () => {
+  logger.info(`API server listening on port ${config.apiPort}`);
 });
 
 export { app };
