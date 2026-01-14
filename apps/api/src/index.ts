@@ -1,7 +1,12 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { existsSync } from 'fs';
 import { logger } from './logger.js';
 import { config, logConfig } from './config.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { getDb, queryOne } from './db/db.js';
 import { seed } from './db/seed.js';
 import { addClient, broadcast } from './sse/broker.js';
@@ -64,6 +69,28 @@ app.post('/api/channels/:slug/test-broadcast', (req, res) => {
   broadcast(slug, eventName || 'test', data || { message: 'test' });
   res.json({ ok: true });
 });
+
+// Production: Serve static web dist
+// __dirname in ESM with fileURLToPath is the dist folder when compiled
+// From apps/api/dist, we need to go to apps/web/dist
+const webDistPath = path.resolve(__dirname, '../../web/dist');
+logger.debug(`Checking for web dist at: ${webDistPath}`);
+if (existsSync(webDistPath)) {
+  logger.info(`Serving static files from ${webDistPath}`);
+  app.use(express.static(webDistPath));
+
+  // SPA fallback - serve index.html for non-API routes
+  app.get('*', (req, res, next) => {
+    // Skip API routes
+    if (req.path.startsWith('/api') || req.path === '/health') {
+      next();
+      return;
+    }
+    res.sendFile(path.join(webDistPath, 'index.html'));
+  });
+} else {
+  logger.info('Web dist not found, skipping static file serving (dev mode)');
+}
 
 // Global error handler
 app.use(
