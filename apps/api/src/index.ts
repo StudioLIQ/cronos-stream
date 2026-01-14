@@ -7,6 +7,7 @@ import { seed } from './db/seed.js';
 import { addClient, broadcast } from './sse/broker.js';
 import publicRoutes from './routes/public.js';
 import paywalledRoutes from './routes/paywalled.js';
+import dashboardRoutes from './routes/dashboard.js';
 
 // Log configuration
 logConfig();
@@ -31,6 +32,9 @@ app.use('/api', publicRoutes);
 
 // Paywalled routes
 app.use('/api', paywalledRoutes);
+
+// Dashboard routes (auth required)
+app.use('/api', dashboardRoutes);
 
 // SSE endpoints
 app.get('/api/channels/:slug/stream/overlay', (req, res) => {
