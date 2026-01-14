@@ -6,6 +6,7 @@ import { getDb, queryOne } from './db/db.js';
 import { seed } from './db/seed.js';
 import { addClient, broadcast } from './sse/broker.js';
 import publicRoutes from './routes/public.js';
+import paywalledRoutes from './routes/paywalled.js';
 
 // Log configuration
 logConfig();
@@ -27,6 +28,9 @@ app.get('/health', (_req, res) => {
 
 // Public routes
 app.use('/api', publicRoutes);
+
+// Paywalled routes
+app.use('/api', paywalledRoutes);
 
 // SSE endpoints
 app.get('/api/channels/:slug/stream/overlay', (req, res) => {
