@@ -2,9 +2,10 @@ import express from 'express';
 import cors from 'cors';
 import { logger } from './logger.js';
 import { config, logConfig } from './config.js';
-import { getDb, queryOne, queryAll } from './db/db.js';
+import { getDb, queryOne } from './db/db.js';
 import { seed } from './db/seed.js';
 import { addClient, broadcast } from './sse/broker.js';
+import publicRoutes from './routes/public.js';
 
 // Log configuration
 logConfig();
@@ -24,20 +25,8 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Temporary: Get actions for demo channel (will be replaced by proper routes in T3.1)
-app.get('/api/channels/:slug/actions', (req, res) => {
-  const { slug } = req.params;
-  const channel = queryOne<{ id: string }>('SELECT id FROM channels WHERE slug = ?', [slug]);
-  if (!channel) {
-    res.status(404).json({ error: 'Channel not found' });
-    return;
-  }
-  const actions = queryAll<{ actionKey: string; type: string; priceBaseUnits: string; payloadJson: string }>(
-    'SELECT actionKey, type, priceBaseUnits, payloadJson FROM actions WHERE channelId = ? AND enabled = 1',
-    [channel.id]
-  );
-  res.json(actions.map(a => ({ ...a, payload: JSON.parse(a.payloadJson) })));
-});
+// Public routes
+app.use('/api', publicRoutes);
 
 // SSE endpoints
 app.get('/api/channels/:slug/stream/overlay', (req, res) => {
