@@ -1,0 +1,23 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="border" x1="32" y1="24" x2="232" y2="232" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#00E7A0" />
+      <stop offset="1" stop-color="#3B82F6" />
+    </linearGradient>
+    <linearGradient id="coin" x1="52" y1="180" x2="84" y2="212" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#00E7A0" />
+      <stop offset="1" stop-color="#00B0FF" />
+    </linearGradient>
+  </defs>
+
+  <rect x="24" y="24" width="208" height="208" rx="56" fill="#0B0F14" stroke="url(#border)" stroke-width="16" />
+
+  <path
+    d="M112 86.5C112 82.7 116.1 80.3 119.4 82.3L179.6 119.8C182.7 121.7 182.7 126.3 179.6 128.2L119.4 165.7C116.1 167.7 112 165.3 112 161.5V86.5Z"
+    fill="#E5E7EB"
+  />
+
+  <circle cx="72" cy="192" r="18" fill="url(#coin)" />
+  <circle cx="65.5" cy="186.5" r="5" fill="#E5E7EB" opacity="0.35" />
+</svg>
+

@@ -110,6 +110,9 @@ input:focus, textarea:focus, select:focus {
 }
 
 .brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   font-size: 16px;
   font-weight: 800;
   letter-spacing: 0.2px;
