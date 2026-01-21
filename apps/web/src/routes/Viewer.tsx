@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
-import { useLocation, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { fetchChannel, fetchActions, triggerAction, donate, submitQA, is402Response } from '../lib/api';
 import type { Channel, Action, PaymentResponse } from '../lib/api';
 import { connectWallet, getSigner, isConnected, switchToCronosTestnet } from '../lib/wallet';
 import { createPaymentHeader, formatUsdcAmount } from '../lib/x402';
 import { TopNav } from '../components/TopNav';
+import { getFeaturedStreamBySlug } from '../data/featuredStreams';
+import { toYouTubeEmbedUrl } from '../lib/youtube';
 
 type PaymentState = 'idle' | 'needs_payment' | 'signing' | 'settling' | 'done' | 'error';
 
@@ -13,9 +15,6 @@ interface PaymentResult {
   from: string;
   value: string;
 }
-
-const DEFAULT_STREAM_INPUT = 'https://www.youtube.com/watch?v=Ap-UM1O9RBU';
-const DEFAULT_STREAM_EMBED_URL = 'https://www.youtube.com/embed/Ap-UM1O9RBU';
 
 function parseUsdcToBaseUnits(input: string): { ok: true; baseUnits: string } | { ok: false; error: string } {
   let normalized = input.trim();
@@ -39,99 +38,13 @@ function parseUsdcToBaseUnits(input: string): { ok: true; baseUnits: string } | 
   return { ok: true, baseUnits };
 }
 
-function normalizeYouTubeStreamInput(value: string): { ok: true; embedUrl: string } | { ok: false; error: string } {
-  const trimmed = value.trim();
-  if (!trimmed) return { ok: false, error: 'Please enter a link.' };
-
-  // YouTube channel ID (preferred for "currently live" embeds)
-  if (/^UC[a-zA-Z0-9_-]{20,}$/.test(trimmed)) {
-    return {
-      ok: true,
-      embedUrl: `https://www.youtube.com/embed/live_stream?channel=${encodeURIComponent(trimmed)}`,
-    };
-  }
-
-  // YouTube video ID (11 chars)
-  if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) {
-    return { ok: true, embedUrl: `https://www.youtube.com/embed/${encodeURIComponent(trimmed)}` };
-  }
-
-  let url: URL;
-  try {
-    url = new URL(trimmed);
-  } catch {
-    return { ok: false, error: 'Invalid URL.' };
-  }
-
-  if (url.protocol !== 'https:') {
-    return { ok: false, error: 'Only https URLs are supported.' };
-  }
-
-  const host = url.hostname.replace(/^www\./, '');
-
-  if (host === 'youtu.be') {
-    const videoId = url.pathname.replace(/^\//, '').split('/')[0];
-    if (!videoId) return { ok: false, error: 'Invalid youtu.be URL.' };
-    return { ok: true, embedUrl: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}` };
-  }
-
-  if (host === 'youtube.com') {
-    if (url.pathname.startsWith('/embed/')) {
-      return { ok: true, embedUrl: url.toString() };
-    }
-
-    if (url.pathname === '/watch') {
-      const videoId = url.searchParams.get('v');
-      if (!videoId) return { ok: false, error: 'The watch URL must include the v= parameter.' };
-      return { ok: true, embedUrl: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}` };
-    }
-
-    if (url.pathname.startsWith('/live/')) {
-      const videoId = url.pathname.split('/')[2];
-      if (!videoId) return { ok: false, error: 'Invalid /live URL.' };
-      return { ok: true, embedUrl: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}` };
-    }
-
-    if (url.pathname.startsWith('/channel/')) {
-      const channelId = url.pathname.split('/')[2];
-      if (!channelId) return { ok: false, error: 'Invalid /channel URL.' };
-      return {
-        ok: true,
-        embedUrl: `https://www.youtube.com/embed/live_stream?channel=${encodeURIComponent(channelId)}`,
-      };
-    }
-  }
-
-  if (host === 'youtube-nocookie.com') {
-    if (url.pathname.startsWith('/embed/')) {
-      return { ok: true, embedUrl: url.toString() };
-    }
-  }
-
-  return { ok: false, error: 'Only YouTube links (channel/video) are supported.' };
-}
-
-function streamOverrideEmbedKey(slug: string): string {
-  return `stream402:streamEmbedUrlOverride:${slug}`;
-}
-
-function streamOverrideInputKey(slug: string): string {
-  return `stream402:streamInputOverride:${slug}`;
-}
-
 export default function Viewer() {
   const { slug } = useParams<{ slug: string }>();
-  const location = useLocation();
   const [channel, setChannel] = useState<Channel | null>(null);
   const [actions, setActions] = useState<Action[]>([]);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  // Stream embed override (local only)
-  const [streamOverrideEmbedUrl, setStreamOverrideEmbedUrl] = useState<string | null>(null);
-  const [streamInput, setStreamInput] = useState('');
-  const [streamInputError, setStreamInputError] = useState<string | null>(null);
 
   // Donation state
   const [donationAmount, setDonationAmount] = useState('0.05');
@@ -156,6 +69,12 @@ export default function Viewer() {
   useEffect(() => {
     if (!slug) return;
 
+    const featured = getFeaturedStreamBySlug(slug);
+    if (!featured) {
+      setLoading(false);
+      return;
+    }
+
     Promise.all([fetchChannel(slug), fetchActions(slug)])
       .then(([ch, acts]) => {
         setChannel(ch);
@@ -167,34 +86,6 @@ export default function Viewer() {
         setLoading(false);
       });
   }, [slug]);
-
-  useEffect(() => {
-    if (!slug) return;
-    const storedEmbedUrl = localStorage.getItem(streamOverrideEmbedKey(slug));
-    const storedInput = localStorage.getItem(streamOverrideInputKey(slug));
-    setStreamOverrideEmbedUrl(storedEmbedUrl || null);
-    setStreamInput(storedInput || '');
-    setStreamInputError(null);
-  }, [slug]);
-
-  useEffect(() => {
-    if (!slug) return;
-    const params = new URLSearchParams(location.search);
-    const streamParam = params.get('stream');
-    if (!streamParam) return;
-
-    setStreamInput(streamParam);
-    const normalized = normalizeYouTubeStreamInput(streamParam);
-    if (!normalized.ok) {
-      setStreamInputError(normalized.error);
-      return;
-    }
-
-    localStorage.setItem(streamOverrideEmbedKey(slug), normalized.embedUrl);
-    localStorage.setItem(streamOverrideInputKey(slug), streamParam);
-    setStreamOverrideEmbedUrl(normalized.embedUrl);
-    setStreamInputError(null);
-  }, [slug, location.search]);
 
   const handleConnect = async () => {
     try {
@@ -358,47 +249,44 @@ export default function Viewer() {
     }
   };
 
-  const activeStreamEmbedUrl =
-    streamOverrideEmbedUrl || channel?.streamEmbedUrl || DEFAULT_STREAM_EMBED_URL;
-
-  const handleApplyStream = () => {
-    if (!slug) return;
-    const value = streamInput.trim();
-    if (!value) {
-      localStorage.removeItem(streamOverrideEmbedKey(slug));
-      localStorage.removeItem(streamOverrideInputKey(slug));
-      setStreamOverrideEmbedUrl(null);
-      setStreamInputError(null);
-      return;
-    }
-
-    const normalized = normalizeYouTubeStreamInput(value);
-    if (!normalized.ok) {
-      setStreamInputError(normalized.error);
-      return;
-    }
-
-    localStorage.setItem(streamOverrideEmbedKey(slug), normalized.embedUrl);
-    localStorage.setItem(streamOverrideInputKey(slug), value);
-    setStreamOverrideEmbedUrl(normalized.embedUrl);
-    setStreamInputError(null);
-  };
-
-  const handleResetStream = () => {
-    if (!slug) return;
-    localStorage.removeItem(streamOverrideEmbedKey(slug));
-    localStorage.removeItem(streamOverrideInputKey(slug));
-    setStreamOverrideEmbedUrl(null);
-    setStreamInput('');
-    setStreamInputError(null);
-  };
-
   if (loading) {
-    return <div className="container"><p>Loading...</p></div>;
+    return (
+      <div>
+        <TopNav />
+        <div className="container"><p>Loading...</p></div>
+      </div>
+    );
+  }
+
+  const featured = slug ? getFeaturedStreamBySlug(slug) : undefined;
+  const featuredEmbedUrl = featured ? toYouTubeEmbedUrl(featured.youtube.url) : null;
+
+  if (!featured || !featuredEmbedUrl) {
+    return (
+      <div>
+        <TopNav />
+        <div className="container">
+          <div className="card">
+            <h2 style={{ fontSize: '18px', fontWeight: 700 }}>Stream not available</h2>
+            <p style={{ marginTop: '8px', color: '#888' }}>This stream is not in the featured list.</p>
+            <div style={{ marginTop: '14px' }}>
+              <Link to="/" style={{ color: '#3b82f6' }}>
+                Back to Home
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (!channel) {
-    return <div className="container"><p>Channel not found</p></div>;
+    return (
+      <div>
+        <TopNav />
+        <div className="container"><p>Channel not found</p></div>
+      </div>
+    );
   }
 
   return (
@@ -439,7 +327,7 @@ export default function Viewer() {
             <div className="card" style={{ padding: 0, overflow: 'hidden', marginTop: '12px' }}>
               <div style={{ position: 'relative', paddingTop: '56.25%' }}>
                 <iframe
-                  src={activeStreamEmbedUrl}
+                  src={featuredEmbedUrl}
                   title={`${channel.displayName} livestream`}
                   allow="autoplay; encrypted-media; picture-in-picture"
                   allowFullScreen
@@ -453,37 +341,6 @@ export default function Viewer() {
                   }}
                 />
               </div>
-            </div>
-
-            <div className="card" style={{ marginTop: '12px' }}>
-              <p style={{ color: '#888', fontSize: '14px', lineHeight: 1.4 }}>
-                This defaults to the demo video. Paste a YouTube live/video link below to change it (saved <strong>only in this browser</strong>).
-              </p>
-              <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
-                <input
-                  type="text"
-                  value={streamInput}
-                  onChange={(e) => setStreamInput(e.target.value)}
-                  placeholder={DEFAULT_STREAM_INPUT}
-                  style={{ width: '100%' }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleApplyStream();
-                  }}
-                />
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button onClick={handleApplyStream} style={{ background: '#3b82f6', color: '#fff' }}>
-                    Apply
-                  </button>
-                  <button onClick={handleResetStream} style={{ background: '#1a1a1a', color: '#fff', border: '1px solid #333' }}>
-                    Reset
-                  </button>
-                </div>
-              </div>
-              {streamInputError && (
-                <p style={{ marginTop: '10px', color: '#ef4444', fontSize: '13px' }}>
-                  {streamInputError}
-                </p>
-              )}
             </div>
           </section>
 

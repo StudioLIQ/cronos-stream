@@ -2,46 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { FEATURED_STREAMS } from '../data/featuredStreams';
 import { TopNav } from '../components/TopNav';
-
-function extractYouTubeVideoId(input: string): string | null {
-  const trimmed = input.trim();
-  if (!trimmed) return null;
-
-  // video id (11 chars)
-  if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) return trimmed;
-
-  let url: URL;
-  try {
-    url = new URL(trimmed);
-  } catch {
-    return null;
-  }
-
-  const host = url.hostname.replace(/^www\./, '');
-
-  if (host === 'youtu.be') {
-    const id = url.pathname.replace(/^\//, '').split('/')[0];
-    return id || null;
-  }
-
-  if (host === 'youtube.com') {
-    if (url.pathname === '/watch') return url.searchParams.get('v');
-    if (url.pathname.startsWith('/embed/')) return url.pathname.split('/')[2] || null;
-    if (url.pathname.startsWith('/live/')) return url.pathname.split('/')[2] || null;
-  }
-
-  if (host === 'youtube-nocookie.com') {
-    if (url.pathname.startsWith('/embed/')) return url.pathname.split('/')[2] || null;
-  }
-
-  return null;
-}
-
-function youtubeThumbnailUrl(input: string): string | null {
-  const videoId = extractYouTubeVideoId(input);
-  if (!videoId) return null;
-  return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
-}
+import { youtubeThumbnailUrl } from '../lib/youtube';
 
 export default function Home() {
   const [query, setQuery] = useState('');
@@ -74,15 +35,12 @@ export default function Home() {
       <main className="container" style={{ paddingTop: '24px' }}>
         <div className="page-header">
           <h1 style={{ fontSize: '22px', fontWeight: 700 }}>Live</h1>
-          <p style={{ marginTop: '6px', color: 'var(--muted)', fontSize: '14px' }}>
-            Curated list (hardcoded) — edit <code>apps/web/src/data/featuredStreams.ts</code>
-          </p>
         </div>
 
         <div className="stream-grid" style={{ marginTop: '18px' }}>
           {filtered.map((stream) => {
             const thumb = stream.thumbnailUrl || youtubeThumbnailUrl(stream.youtube.url);
-            const to = `/v/${encodeURIComponent(stream.slug)}?stream=${encodeURIComponent(stream.youtube.url)}`;
+            const to = `/v/${encodeURIComponent(stream.slug)}`;
 
             return (
               <Link key={stream.id} to={to} className="stream-card">
@@ -120,4 +78,3 @@ export default function Home() {
     </div>
   );
 }
-

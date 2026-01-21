@@ -35,3 +35,6 @@ export const FEATURED_STREAMS: FeaturedStream[] = [
   },
 ];
 
+export function getFeaturedStreamBySlug(slug: string): FeaturedStream | undefined {
+  return FEATURED_STREAMS.find((s) => s.slug === slug);
+}
