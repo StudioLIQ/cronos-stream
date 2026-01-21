@@ -26,6 +26,26 @@ async function ensureColumnExists(
   await db.query(opts.ddl);
 }
 
+async function ensureIndexExists(
+  db: Pool,
+  opts: { table: string; index: string; ddl: string }
+): Promise<void> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT COUNT(*) as count
+     FROM information_schema.statistics
+     WHERE table_schema = DATABASE()
+       AND table_name = ?
+       AND index_name = ?`,
+    [opts.table, opts.index]
+  );
+
+  const count = Number((rows?.[0] as { count?: unknown } | undefined)?.count ?? 0);
+  if (count > 0) return;
+
+  logger.info(`Adding missing index ${opts.table}.${opts.index}...`);
+  await db.query(opts.ddl);
+}
+
 export async function migrate(db: Pool): Promise<void> {
   const schemaPath = path.join(__dirname, 'schema.sql');
   const schema = fs.readFileSync(schemaPath, 'utf-8');
@@ -38,6 +58,44 @@ export async function migrate(db: Pool): Promise<void> {
     table: 'channels',
     column: 'streamEmbedUrl',
     ddl: `ALTER TABLE channels ADD COLUMN streamEmbedUrl TEXT NULL AFTER network`,
+  });
+
+  // T6.1: Support ledger - enrich payments with context
+  await ensureColumnExists(db, {
+    table: 'payments',
+    column: 'kind',
+    ddl: `ALTER TABLE payments ADD COLUMN kind ENUM('effect', 'qa', 'donation', 'membership') NULL AFTER error`,
+  });
+
+  await ensureColumnExists(db, {
+    table: 'payments',
+    column: 'actionKey',
+    ddl: `ALTER TABLE payments ADD COLUMN actionKey VARCHAR(191) NULL AFTER kind`,
+  });
+
+  await ensureColumnExists(db, {
+    table: 'payments',
+    column: 'qaId',
+    ddl: `ALTER TABLE payments ADD COLUMN qaId CHAR(36) NULL AFTER actionKey`,
+  });
+
+  await ensureColumnExists(db, {
+    table: 'payments',
+    column: 'membershipPlanId',
+    ddl: `ALTER TABLE payments ADD COLUMN membershipPlanId CHAR(36) NULL AFTER qaId`,
+  });
+
+  // Add indexes for support history queries
+  await ensureIndexExists(db, {
+    table: 'payments',
+    index: 'idx_payments_channel_from_timestamp',
+    ddl: `CREATE INDEX idx_payments_channel_from_timestamp ON payments (channelId, fromAddress, timestamp)`,
+  });
+
+  await ensureIndexExists(db, {
+    table: 'payments',
+    index: 'idx_payments_from_timestamp',
+    ddl: `CREATE INDEX idx_payments_from_timestamp ON payments (fromAddress, timestamp)`,
   });
 
   logger.info('Database migration complete');

@@ -61,10 +61,16 @@ CREATE TABLE IF NOT EXISTS payments (
   blockNumber BIGINT NULL,
   timestamp BIGINT NULL,
   error TEXT NULL,
+  kind ENUM('effect', 'qa', 'donation', 'membership') NULL,
+  actionKey VARCHAR(191) NULL,
+  qaId CHAR(36) NULL,
+  membershipPlanId CHAR(36) NULL,
   createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uk_payments_paymentId (paymentId),
   KEY idx_payments_channel (channelId),
+  KEY idx_payments_channel_from_timestamp (channelId, fromAddress, timestamp),
+  KEY idx_payments_from_timestamp (fromAddress, timestamp),
   CONSTRAINT fk_payments_channel FOREIGN KEY (channelId) REFERENCES channels(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

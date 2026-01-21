@@ -12,6 +12,7 @@ import {
   createVerifiedPayment,
   markPaymentSettled,
   markPaymentFailed,
+  updatePaymentContext,
 } from '../x402/idempotency.js';
 import { broadcastToOverlay, broadcastToDashboard, broadcastToAll } from '../sse/broker.js';
 import type { SettleSuccessResponse } from '../x402/types.js';
@@ -142,7 +143,11 @@ router.post('/channels/:slug/trigger', async (req: Request, res: Response, next:
         channelId: channel.id,
         paymentId,
         paymentHeader,
+        context: { kind: 'effect', actionKey },
       });
+    } else if (!existing.kind) {
+      // Backfill context for existing payment
+      await updatePaymentContext(paymentId, { kind: 'effect', actionKey });
     }
 
     // Settle payment
@@ -306,13 +311,20 @@ router.post('/channels/:slug/qa', async (req: Request, res: Response, next: Next
       return;
     }
 
+    // Generate Q&A ID early so we can store it in payment context
+    const qaId = uuid();
+
     // Create payment record (if new)
     if (!existing) {
       await createVerifiedPayment({
         channelId: channel.id,
         paymentId,
         paymentHeader,
+        context: { kind: 'qa', qaId },
       });
+    } else if (!existing.kind) {
+      // Backfill context for existing payment
+      await updatePaymentContext(paymentId, { kind: 'qa', qaId });
     }
 
     // Settle payment
@@ -331,7 +343,6 @@ router.post('/channels/:slug/qa', async (req: Request, res: Response, next: Next
     await markPaymentSettled(paymentId, settleResult);
 
     // Insert Q&A item
-    const qaId = uuid();
     await execute(
       `INSERT INTO qa_items (id, channelId, paymentId, fromAddress, displayName, message, tier, priceBaseUnits, status)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued')`,
@@ -487,7 +498,11 @@ router.post('/channels/:slug/donate', async (req: Request, res: Response, next: 
         channelId: channel.id,
         paymentId,
         paymentHeader,
+        context: { kind: 'donation' },
       });
+    } else if (!existing.kind) {
+      // Backfill context for existing payment
+      await updatePaymentContext(paymentId, { kind: 'donation' });
     }
 
     // Settle payment

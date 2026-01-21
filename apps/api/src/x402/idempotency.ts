@@ -3,6 +3,8 @@ import { queryOne, execute } from '../db/db.js';
 import { logger } from '../logger.js';
 import type { SettleSuccessResponse, PaymentHeader } from './types.js';
 
+export type PaymentKind = 'effect' | 'qa' | 'donation' | 'membership';
+
 export interface StoredPayment {
   id: string;
   channelId: string;
@@ -19,6 +21,10 @@ export interface StoredPayment {
   blockNumber: number | null;
   timestamp: number | null;
   error: string | null;
+  kind: PaymentKind | null;
+  actionKey: string | null;
+  qaId: string | null;
+  membershipPlanId: string | null;
   createdAt: string;
 }
 
@@ -38,17 +44,25 @@ export function parsePaymentHeader(paymentHeaderBase64: string): PaymentHeader {
   return JSON.parse(json) as PaymentHeader;
 }
 
+export interface PaymentContext {
+  kind: PaymentKind;
+  actionKey?: string;
+  qaId?: string;
+  membershipPlanId?: string;
+}
+
 export async function createVerifiedPayment(params: {
   channelId: string;
   paymentId: string;
   paymentHeader: PaymentHeader;
+  context?: PaymentContext;
 }): Promise<string> {
-  const { channelId, paymentId, paymentHeader } = params;
+  const { channelId, paymentId, paymentHeader, context } = params;
   const id = crypto.randomUUID();
 
   await execute(
-    `INSERT INTO payments (id, channelId, paymentId, status, scheme, network, asset, fromAddress, toAddress, value, nonce)
-     VALUES (?, ?, ?, 'verified', ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO payments (id, channelId, paymentId, status, scheme, network, asset, fromAddress, toAddress, value, nonce, kind, actionKey, qaId, membershipPlanId)
+     VALUES (?, ?, ?, 'verified', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       channelId,
@@ -60,11 +74,48 @@ export async function createVerifiedPayment(params: {
       paymentHeader.payload.to,
       paymentHeader.payload.value,
       paymentHeader.payload.nonce,
+      context?.kind ?? null,
+      context?.actionKey ?? null,
+      context?.qaId ?? null,
+      context?.membershipPlanId ?? null,
     ]
   );
 
-  logger.info('Created verified payment record', { id, paymentId });
+  logger.info('Created verified payment record', { id, paymentId, kind: context?.kind });
   return id;
+}
+
+export async function updatePaymentContext(
+  paymentId: string,
+  context: Partial<PaymentContext>
+): Promise<void> {
+  const updates: string[] = [];
+  const values: (string | null)[] = [];
+
+  if (context.kind !== undefined) {
+    updates.push('kind = ?');
+    values.push(context.kind);
+  }
+  if (context.actionKey !== undefined) {
+    updates.push('actionKey = ?');
+    values.push(context.actionKey ?? null);
+  }
+  if (context.qaId !== undefined) {
+    updates.push('qaId = ?');
+    values.push(context.qaId ?? null);
+  }
+  if (context.membershipPlanId !== undefined) {
+    updates.push('membershipPlanId = ?');
+    values.push(context.membershipPlanId ?? null);
+  }
+
+  if (updates.length === 0) return;
+
+  values.push(paymentId);
+  await execute(
+    `UPDATE payments SET ${updates.join(', ')} WHERE paymentId = ?`,
+    values
+  );
 }
 
 export async function markPaymentSettled(
