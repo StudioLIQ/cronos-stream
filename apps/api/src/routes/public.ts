@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { queryOne, queryAll } from '../db/db.js';
+import { config } from '../config.js';
+import { NETWORKS } from '../x402/constants.js';
 
 const router = Router();
 
@@ -294,6 +296,21 @@ router.get('/channels/:slug/supports/me', async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+// GET /api/status - Server status endpoint
+router.get('/status', (_req, res) => {
+  const network = config.defaultNetwork;
+  const networkConfig = NETWORKS[network];
+
+  res.json({
+    status: 'ok',
+    network,
+    chainId: networkConfig?.chainId || null,
+    asset: networkConfig?.usdcAddress || null,
+    sellerWallet: config.sellerWallet,
+    serverTime: new Date().toISOString(),
+  });
 });
 
 export async function getChannelById(slug: string): Promise<ChannelRow | undefined> {

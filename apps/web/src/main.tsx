@@ -6,6 +6,7 @@ import Viewer from './routes/Viewer';
 import Overlay from './routes/Overlay';
 import Dashboard from './routes/Dashboard';
 import { ToastProvider, ToastHost } from './components/Toast';
+import { StatusBar } from './components/StatusBar';
 import './index.css';
 
 function ConditionalToastHost() {
@@ -15,6 +16,15 @@ function ConditionalToastHost() {
     return null;
   }
   return <ToastHost />;
+}
+
+function ConditionalStatusBar() {
+  const location = useLocation();
+  // Don't render status bar on the overlay page (OBS browser source)
+  if (location.pathname.startsWith('/o/')) {
+    return null;
+  }
+  return <StatusBar />;
 }
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
@@ -29,6 +39,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         <ConditionalToastHost />
+        <ConditionalStatusBar />
       </BrowserRouter>
     </ToastProvider>
   </React.StrictMode>
