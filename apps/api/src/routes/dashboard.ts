@@ -667,4 +667,47 @@ router.post('/channels/:slug/memberships/:address/revoke', async (req, res, next
   }
 });
 
+// POST /api/channels/:slug/demo/reset - Reset demo data (dev/demo only)
+router.post('/channels/:slug/demo/reset', async (req, res, next) => {
+  try {
+    const { slug } = req.params;
+
+    // Only allow reset for 'demo' channel as a guardrail
+    if (slug !== 'demo') {
+      res.status(403).json({ error: 'Demo reset is only allowed for the demo channel' });
+      return;
+    }
+
+    const channel = await getChannelBySlug(slug);
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
+    // Clear Q&A items (keep only non-queued for history)
+    await execute(
+      'DELETE FROM qa_items WHERE channelId = ? AND status = ?',
+      [channel.id, 'queued']
+    );
+
+    // Clear blocks
+    await execute(
+      'DELETE FROM blocks WHERE channelId = ?',
+      [channel.id]
+    );
+
+    // Clear recent payments (optional - keep for audit trail)
+    // Not deleting payments to maintain idempotency
+
+    logger.info('Demo data reset', { channelId: channel.id, slug });
+
+    res.json({
+      ok: true,
+      message: 'Demo data reset successfully',
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

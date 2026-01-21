@@ -101,6 +101,10 @@ export default function Dashboard() {
   const [memberFilter, setMemberFilter] = useState<'all' | 'active' | 'expired' | 'revoked'>('active');
   const [memberSearch, setMemberSearch] = useState('');
 
+  // Demo reset state
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
+
   const fetchItems = useCallback(async () => {
     if (!slug || !token) return;
     setLoading(true);
@@ -293,6 +297,35 @@ export default function Dashboard() {
     setAuthenticated(true);
   };
 
+  const handleDemoReset = async () => {
+    if (slug !== 'demo') return;
+    setResetLoading(true);
+    setError(null);
+
+    try {
+      const res = await fetch(`${API_BASE}/channels/${slug}/demo/reset`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to reset demo data');
+      }
+
+      // Refresh the Q&A list
+      await fetchItems();
+      setShowResetConfirm(false);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
   const handleWalletLookup = () => {
     if (walletLookup && /^0x[a-fA-F0-9]{40}$/.test(walletLookup)) {
       fetchWalletSupports(walletLookup);
@@ -357,7 +390,25 @@ export default function Dashboard() {
   return (
     <div className="container">
       <header style={{ marginBottom: '24px' }}>
-        <h1>Dashboard - {slug}</h1>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h1>Dashboard - {slug}</h1>
+          {slug === 'demo' && (
+            <button
+              onClick={() => setShowResetConfirm(true)}
+              style={{
+                background: '#dc2626',
+                color: '#fff',
+                border: 'none',
+                padding: '8px 16px',
+                borderRadius: '6px',
+                fontSize: '14px',
+                cursor: 'pointer',
+              }}
+            >
+              Reset Demo Data
+            </button>
+          )}
+        </div>
         {/* Tab navigation */}
         <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
           <button
@@ -780,6 +831,58 @@ export default function Dashboard() {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Reset Demo Confirmation Dialog */}
+      {showResetConfirm && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+          }}
+          onClick={() => setShowResetConfirm(false)}
+        >
+          <div
+            className="card"
+            style={{ maxWidth: '400px', width: '90%' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 style={{ marginBottom: '12px' }}>Reset Demo Data?</h2>
+            <p style={{ color: '#888', marginBottom: '20px' }}>
+              This will clear all queued Q&A items and blocked wallets. This action cannot be undone.
+            </p>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setShowResetConfirm(false)}
+                style={{
+                  background: 'transparent',
+                  color: '#888',
+                  border: '1px solid #333',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDemoReset}
+                disabled={resetLoading}
+                style={{
+                  background: '#dc2626',
+                  color: '#fff',
+                }}
+              >
+                {resetLoading ? 'Resetting...' : 'Reset'}
+              </button>
+            </div>
           </div>
         </div>
       )}
