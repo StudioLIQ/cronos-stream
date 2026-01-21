@@ -13,6 +13,7 @@ import { addClient, broadcast } from './sse/broker.js';
 import publicRoutes from './routes/public.js';
 import paywalledRoutes from './routes/paywalled.js';
 import dashboardRoutes from './routes/dashboard.js';
+import profileRoutes from './routes/profile.js';
 
 const app = express();
 
@@ -33,6 +34,9 @@ app.use('/api', paywalledRoutes);
 
 // Dashboard routes (auth required)
 app.use('/api', dashboardRoutes);
+
+// Profile routes (public, for wallet-signed nickname updates)
+app.use('/api', profileRoutes);
 
 // SSE endpoints
 app.get('/api/channels/:slug/stream/overlay', async (req, res, next) => {
