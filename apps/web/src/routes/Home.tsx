@@ -32,9 +32,165 @@ export default function Home() {
         </div>
       </TopNav>
 
-      <main className="container" style={{ paddingTop: '24px' }}>
+      {/* Hero Section */}
+      <section
+        style={{
+          background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(59, 130, 246, 0.1) 100%)',
+          borderBottom: '1px solid #2a2a2a',
+          padding: '48px 24px',
+        }}
+      >
+        <div className="container" style={{ textAlign: 'center', maxWidth: '720px', margin: '0 auto' }}>
+          <h1 style={{ fontSize: '36px', fontWeight: 800, marginBottom: '16px', lineHeight: 1.2 }}>
+            Paid Interactions for Streamers
+          </h1>
+          <p style={{ fontSize: '18px', color: '#a1a1aa', marginBottom: '32px', lineHeight: 1.6 }}>
+            Let viewers support you with USDC payments. Effects, Q&A, donations - all settled on-chain via x402.
+          </p>
+          <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <Link
+              to="/v/demo"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                padding: '14px 28px',
+                background: '#6366f1',
+                color: '#fff',
+                borderRadius: '8px',
+                fontWeight: 600,
+                fontSize: '16px',
+                textDecoration: 'none',
+              }}
+            >
+              Open Demo
+            </Link>
+            <Link
+              to="/d/demo"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                padding: '14px 28px',
+                background: 'transparent',
+                color: '#fff',
+                border: '1px solid #4a4a4a',
+                borderRadius: '8px',
+                fontWeight: 600,
+                fontSize: '16px',
+                textDecoration: 'none',
+              }}
+            >
+              Streamer Dashboard
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* How it Works Section */}
+      <section className="container" style={{ padding: '48px 24px' }}>
+        <h2 style={{ fontSize: '22px', fontWeight: 700, textAlign: 'center', marginBottom: '32px' }}>
+          How it Works
+        </h2>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gap: '24px',
+            maxWidth: '900px',
+            margin: '0 auto',
+          }}
+        >
+          <div className="card" style={{ textAlign: 'center', padding: '24px' }}>
+            <div
+              style={{
+                width: '56px',
+                height: '56px',
+                borderRadius: '50%',
+                background: 'rgba(99, 102, 241, 0.2)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '0 auto 16px',
+                fontSize: '24px',
+              }}
+            >
+              1
+            </div>
+            <h3 style={{ fontWeight: 600, marginBottom: '8px' }}>Pay with Wallet</h3>
+            <p style={{ color: '#888', fontSize: '14px', lineHeight: 1.5 }}>
+              Connect your wallet and sign a transaction to trigger an effect or submit a question.
+            </p>
+          </div>
+
+          <div className="card" style={{ textAlign: 'center', padding: '24px' }}>
+            <div
+              style={{
+                width: '56px',
+                height: '56px',
+                borderRadius: '50%',
+                background: 'rgba(59, 130, 246, 0.2)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '0 auto 16px',
+                fontSize: '24px',
+              }}
+            >
+              2
+            </div>
+            <h3 style={{ fontWeight: 600, marginBottom: '8px' }}>x402 Settlement</h3>
+            <p style={{ color: '#888', fontSize: '14px', lineHeight: 1.5 }}>
+              Payment is verified and settled on-chain using the x402 protocol. Instant confirmation.
+            </p>
+          </div>
+
+          <div className="card" style={{ textAlign: 'center', padding: '24px' }}>
+            <div
+              style={{
+                width: '56px',
+                height: '56px',
+                borderRadius: '50%',
+                background: 'rgba(16, 185, 129, 0.2)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '0 auto 16px',
+                fontSize: '24px',
+              }}
+            >
+              3
+            </div>
+            <h3 style={{ fontWeight: 600, marginBottom: '8px' }}>See on Stream</h3>
+            <p style={{ color: '#888', fontSize: '14px', lineHeight: 1.5 }}>
+              Effects and questions appear on the OBS overlay in real-time. Streamer gets the USDC.
+            </p>
+          </div>
+        </div>
+
+        {/* Quick Links */}
+        <div
+          style={{
+            display: 'flex',
+            gap: '16px',
+            justifyContent: 'center',
+            marginTop: '32px',
+            flexWrap: 'wrap',
+          }}
+        >
+          <Link to="/v/demo" style={{ color: '#6366f1', fontSize: '14px' }}>
+            Viewer Page
+          </Link>
+          <Link to="/o/demo" style={{ color: '#6366f1', fontSize: '14px' }}>
+            OBS Overlay
+          </Link>
+          <Link to="/d/demo" style={{ color: '#6366f1', fontSize: '14px' }}>
+            Dashboard
+          </Link>
+        </div>
+      </section>
+
+      <main className="container" style={{ paddingTop: '24px', paddingBottom: '48px' }}>
         <div className="page-header">
-          <h1 style={{ fontSize: '22px', fontWeight: 700 }}>Live</h1>
+          <h2 style={{ fontSize: '22px', fontWeight: 700 }}>Live Streams</h2>
         </div>
 
         <div className="stream-grid" style={{ marginTop: '18px' }}>
