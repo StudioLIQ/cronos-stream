@@ -1,70 +1,80 @@
--- Stream402 Database Schema
+-- Stream402 Database Schema (MySQL 8+)
 
 CREATE TABLE IF NOT EXISTS channels (
-  id TEXT PRIMARY KEY,
-  slug TEXT UNIQUE NOT NULL,
-  displayName TEXT NOT NULL,
-  payToAddress TEXT NOT NULL,
-  network TEXT NOT NULL DEFAULT 'cronos-testnet',
-  createdAt TEXT NOT NULL DEFAULT (datetime('now')),
-  updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
-);
+  id CHAR(36) NOT NULL,
+  slug VARCHAR(191) NOT NULL,
+  displayName VARCHAR(255) NOT NULL,
+  payToAddress VARCHAR(64) NOT NULL,
+  network VARCHAR(64) NOT NULL DEFAULT 'cronos-testnet',
+  streamEmbedUrl TEXT NULL,
+  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_channels_slug (slug)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS actions (
-  id TEXT PRIMARY KEY,
-  channelId TEXT NOT NULL REFERENCES channels(id),
-  actionKey TEXT NOT NULL,
-  type TEXT NOT NULL CHECK(type IN ('sticker', 'sound', 'flash')),
-  priceBaseUnits TEXT NOT NULL,
+  id CHAR(36) NOT NULL,
+  channelId CHAR(36) NOT NULL,
+  actionKey VARCHAR(191) NOT NULL,
+  type ENUM('sticker', 'sound', 'flash') NOT NULL,
+  priceBaseUnits VARCHAR(64) NOT NULL,
   payloadJson TEXT NOT NULL,
-  enabled INTEGER NOT NULL DEFAULT 1,
-  UNIQUE(channelId, actionKey)
-);
+  enabled TINYINT(1) NOT NULL DEFAULT 1,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_actions_channel_actionKey (channelId, actionKey),
+  CONSTRAINT fk_actions_channel FOREIGN KEY (channelId) REFERENCES channels(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS qa_items (
-  id TEXT PRIMARY KEY,
-  channelId TEXT NOT NULL REFERENCES channels(id),
-  paymentId TEXT UNIQUE NOT NULL,
-  fromAddress TEXT NOT NULL,
-  displayName TEXT,
+  id CHAR(36) NOT NULL,
+  channelId CHAR(36) NOT NULL,
+  paymentId VARCHAR(64) NOT NULL,
+  fromAddress VARCHAR(64) NOT NULL,
+  displayName VARCHAR(255) NULL,
   message TEXT NOT NULL,
-  tier TEXT NOT NULL CHECK(tier IN ('normal', 'priority')),
-  priceBaseUnits TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN ('queued', 'showing', 'answered', 'skipped', 'blocked')),
-  createdAt TEXT NOT NULL DEFAULT (datetime('now')),
-  shownAt TEXT,
-  closedAt TEXT
-);
+  tier ENUM('normal', 'priority') NOT NULL,
+  priceBaseUnits VARCHAR(64) NOT NULL,
+  status ENUM('queued', 'showing', 'answered', 'skipped', 'blocked') NOT NULL DEFAULT 'queued',
+  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  shownAt DATETIME NULL,
+  closedAt DATETIME NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_qa_items_paymentId (paymentId),
+  KEY idx_qa_items_channel_status (channelId, status),
+  CONSTRAINT fk_qa_items_channel FOREIGN KEY (channelId) REFERENCES channels(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS payments (
-  id TEXT PRIMARY KEY,
-  channelId TEXT NOT NULL REFERENCES channels(id),
-  paymentId TEXT UNIQUE NOT NULL,
-  status TEXT NOT NULL DEFAULT 'verified' CHECK(status IN ('verified', 'settled', 'failed')),
-  scheme TEXT NOT NULL,
-  network TEXT NOT NULL,
-  asset TEXT NOT NULL,
-  fromAddress TEXT NOT NULL,
-  toAddress TEXT NOT NULL,
-  value TEXT NOT NULL,
-  nonce TEXT NOT NULL,
-  txHash TEXT,
-  blockNumber INTEGER,
-  timestamp INTEGER,
-  error TEXT,
-  createdAt TEXT NOT NULL DEFAULT (datetime('now'))
-);
+  id CHAR(36) NOT NULL,
+  channelId CHAR(36) NOT NULL,
+  paymentId VARCHAR(64) NOT NULL,
+  status ENUM('verified', 'settled', 'failed') NOT NULL DEFAULT 'verified',
+  scheme VARCHAR(32) NOT NULL,
+  network VARCHAR(64) NOT NULL,
+  asset VARCHAR(64) NOT NULL,
+  fromAddress VARCHAR(64) NOT NULL,
+  toAddress VARCHAR(64) NOT NULL,
+  value VARCHAR(64) NOT NULL,
+  nonce VARCHAR(128) NOT NULL,
+  txHash VARCHAR(128) NULL,
+  blockNumber BIGINT NULL,
+  timestamp BIGINT NULL,
+  error TEXT NULL,
+  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_payments_paymentId (paymentId),
+  KEY idx_payments_channel (channelId),
+  CONSTRAINT fk_payments_channel FOREIGN KEY (channelId) REFERENCES channels(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS blocks (
-  id TEXT PRIMARY KEY,
-  channelId TEXT NOT NULL REFERENCES channels(id),
-  fromAddress TEXT NOT NULL,
-  reason TEXT,
-  createdAt TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(channelId, fromAddress)
-);
-
--- Indexes for common queries
-CREATE INDEX IF NOT EXISTS idx_qa_items_channel_status ON qa_items(channelId, status);
-CREATE INDEX IF NOT EXISTS idx_payments_channel ON payments(channelId);
-CREATE INDEX IF NOT EXISTS idx_blocks_channel_address ON blocks(channelId, fromAddress);
+  id CHAR(36) NOT NULL,
+  channelId CHAR(36) NOT NULL,
+  fromAddress VARCHAR(64) NOT NULL,
+  reason TEXT NULL,
+  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_blocks_channel_fromAddress (channelId, fromAddress),
+  CONSTRAINT fk_blocks_channel FOREIGN KEY (channelId) REFERENCES channels(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

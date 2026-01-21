@@ -13,6 +13,7 @@ Stream402 is a platform-agnostic "paid interaction" layer for livestreamers usin
 
 - Node.js 20+
 - pnpm
+- Docker (for local MySQL)
 - MetaMask or compatible wallet with Cronos testnet USDC.e
 
 ## Getting Started
@@ -39,9 +40,30 @@ DEFAULT_NETWORK=cronos-testnet
 
 # Optional: API port (default: 3402)
 API_PORT=3402
+
+# Database (MySQL)
+# - Recommended: use docker-compose.yml at repo root
+DB_HOST=127.0.0.1
+DB_PORT=3307
+DB_USER=stream402
+DB_PASSWORD=stream402
+DB_NAME=stream402
+
+# (Optional) Demo viewer livestream embed (YouTube)
+# - Preferred: set a YouTube Channel ID (starts with UC...) to always show the current live
+# - Alternative: set a specific YouTube video ID or a full embed URL
+# DEMO_YOUTUBE_CHANNEL_ID=UCxxxxxxxxxxxxxxxxxxxxxx
+# DEMO_YOUTUBE_VIDEO_ID=xxxxxxxxxxx
+# DEMO_STREAM_EMBED_URL=https://www.youtube.com/embed/live_stream?channel=UC...
 ```
 
 ### Development Mode
+
+Start MySQL:
+
+```bash
+docker compose up -d mysql
+```
 
 Start both API and Web in development:
 
@@ -71,6 +93,8 @@ Access at http://localhost:3402
 - `/o/:slug` - Overlay page (OBS browser source)
 - `/d/:slug` - Dashboard page (queue management)
 
+The viewer page includes an embedded YouTube stream by default (demo), and you can override it per-browser by pasting a YouTube link in the Live section.
+
 ### Demo Channel
 
 The app seeds a `demo` channel on first start. Access it at:
@@ -78,6 +102,10 @@ The app seeds a `demo` channel on first start. Access it at:
 - Viewer: http://localhost:5173/v/demo (dev) or http://localhost:3402/v/demo (prod)
 - Overlay: http://localhost:5173/o/demo
 - Dashboard: http://localhost:5173/d/demo (token: demo-token)
+
+The demo viewer defaults to `https://www.youtube.com/watch?v=Ap-UM1O9RBU`.
+- Override in `/v/demo` → Live section (saved to your browser only).
+- Or set `DEMO_YOUTUBE_CHANNEL_ID` and reset the DB volume so seed runs again.
 
 ### OBS Setup
 
@@ -168,7 +196,7 @@ Verify:
 
 ## Tech Stack
 
-- **API**: Express + TypeScript + SQLite + better-sqlite3
+- **API**: Express + TypeScript + MySQL + mysql2
 - **Web**: Vite + React + TypeScript + ethers.js
 - **Payment**: Cronos x402 Protocol
 

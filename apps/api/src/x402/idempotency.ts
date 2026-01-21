@@ -26,7 +26,7 @@ export function computePaymentId(paymentHeaderBase64: string): string {
   return crypto.createHash('sha256').update(paymentHeaderBase64).digest('hex');
 }
 
-export function getExistingPayment(paymentId: string): StoredPayment | undefined {
+export async function getExistingPayment(paymentId: string): Promise<StoredPayment | undefined> {
   return queryOne<StoredPayment>(
     'SELECT * FROM payments WHERE paymentId = ?',
     [paymentId]
@@ -38,15 +38,15 @@ export function parsePaymentHeader(paymentHeaderBase64: string): PaymentHeader {
   return JSON.parse(json) as PaymentHeader;
 }
 
-export function createVerifiedPayment(params: {
+export async function createVerifiedPayment(params: {
   channelId: string;
   paymentId: string;
   paymentHeader: PaymentHeader;
-}): string {
+}): Promise<string> {
   const { channelId, paymentId, paymentHeader } = params;
   const id = crypto.randomUUID();
 
-  execute(
+  await execute(
     `INSERT INTO payments (id, channelId, paymentId, status, scheme, network, asset, fromAddress, toAddress, value, nonce)
      VALUES (?, ?, ?, 'verified', ?, ?, ?, ?, ?, ?, ?)`,
     [
@@ -67,11 +67,11 @@ export function createVerifiedPayment(params: {
   return id;
 }
 
-export function markPaymentSettled(
+export async function markPaymentSettled(
   paymentId: string,
   settleResult: SettleSuccessResponse
-): void {
-  execute(
+): Promise<void> {
+  await execute(
     `UPDATE payments SET status = 'settled', txHash = ?, blockNumber = ?, timestamp = ?
      WHERE paymentId = ?`,
     [
@@ -85,8 +85,8 @@ export function markPaymentSettled(
   logger.info('Marked payment as settled', { paymentId, txHash: settleResult.txHash });
 }
 
-export function markPaymentFailed(paymentId: string, error: string): void {
-  execute(
+export async function markPaymentFailed(paymentId: string, error: string): Promise<void> {
+  await execute(
     `UPDATE payments SET status = 'failed', error = ?
      WHERE paymentId = ?`,
     [error, paymentId]
@@ -101,12 +101,12 @@ export interface IdempotentPaymentResult {
   alreadySettled: boolean;
 }
 
-export function checkIdempotency(
+export async function checkIdempotency(
   paymentHeaderBase64: string,
   channelId: string
-): { paymentId: string; existing: StoredPayment | undefined } {
+): Promise<{ paymentId: string; existing: StoredPayment | undefined }> {
   const paymentId = computePaymentId(paymentHeaderBase64);
-  const existing = getExistingPayment(paymentId);
+  const existing = await getExistingPayment(paymentId);
 
   if (existing) {
     logger.info('Found existing payment', {

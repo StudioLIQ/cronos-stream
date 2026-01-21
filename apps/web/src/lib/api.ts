@@ -5,6 +5,7 @@ export interface Channel {
   displayName: string;
   payToAddress: string;
   network: string;
+  streamEmbedUrl?: string | null;
 }
 
 export interface Action {
@@ -43,6 +44,11 @@ export interface Error402Response {
   error: string;
   x402Version: 1;
   paymentRequirements: PaymentRequirements;
+}
+
+export interface UpdateChannelResponse {
+  ok: true;
+  streamEmbedUrl: string | null;
 }
 
 export async function fetchChannel(slug: string): Promise<Channel> {
@@ -119,6 +125,29 @@ export async function submitQA(
   }
 
   return data as PaymentResponse;
+}
+
+export async function updateChannel(
+  slug: string,
+  token: string,
+  settings: { streamEmbedUrl: string | null }
+): Promise<UpdateChannelResponse> {
+  const res = await fetch(`${API_BASE}/channels/${slug}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(settings),
+  });
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new Error(data.error || 'Failed to update channel');
+  }
+
+  return data as UpdateChannelResponse;
 }
 
 export function is402Response(res: unknown): res is Error402Response {

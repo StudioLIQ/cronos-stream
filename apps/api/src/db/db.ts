@@ -1,45 +1,127 @@
-import Database from 'better-sqlite3';
-import path from 'path';
+import mysql from 'mysql2/promise';
+import type { Pool, PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { migrate } from './migrate.js';
 import { logger } from '../logger.js';
+import { config } from '../config.js';
 
-const DB_PATH = process.env.DB_PATH || path.join(process.cwd(), 'stream402.db');
+let pool: Pool | null = null;
+let initPromise: Promise<void> | null = null;
 
-let db: Database.Database | null = null;
+async function waitForDb(dbPool: Pool): Promise<void> {
+  const maxAttempts = parseInt(process.env.DB_CONNECT_RETRIES || '15', 10);
+  const delayMs = parseInt(process.env.DB_CONNECT_RETRY_DELAY_MS || '1000', 10);
 
-export function getDb(): Database.Database {
-  if (!db) {
-    logger.info(`Opening database at ${DB_PATH}`);
-    db = new Database(DB_PATH);
-    db.pragma('journal_mode = WAL');
-    migrate(db);
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await dbPool.query('SELECT 1');
+      return;
+    } catch (err) {
+      if (attempt === maxAttempts) {
+        throw err;
+      }
+      logger.warn('Waiting for MySQL to be ready...', { attempt, maxAttempts });
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
   }
-  return db;
 }
 
-export function closeDb(): void {
-  if (db) {
-    db.close();
-    db = null;
+export async function initDb(): Promise<void> {
+  if (initPromise) return initPromise;
+
+  initPromise = (async () => {
+    logger.info(
+      `Connecting to MySQL at ${config.db.host}:${config.db.port}/${config.db.database}...`
+    );
+
+    pool = mysql.createPool({
+      host: config.db.host,
+      port: config.db.port,
+      user: config.db.user,
+      password: config.db.password,
+      database: config.db.database,
+      waitForConnections: true,
+      connectionLimit: 10,
+      multipleStatements: true,
+      dateStrings: true,
+    });
+
+    await waitForDb(pool);
+    await migrate(pool);
+  })();
+
+  return initPromise;
+}
+
+export function getDb(): Pool {
+  if (!pool) {
+    throw new Error('Database not initialized. Call initDb() first.');
+  }
+  return pool;
+}
+
+export async function closeDb(): Promise<void> {
+  if (pool) {
+    await pool.end();
+    pool = null;
+    initPromise = null;
   }
 }
 
 // Query helpers
-export function queryOne<T>(sql: string, params?: unknown[]): T | undefined {
-  const stmt = getDb().prepare(sql);
-  return (params ? stmt.get(...params) : stmt.get()) as T | undefined;
+type Queryable = Pool | PoolConnection;
+
+async function getQueryable(conn?: Queryable): Promise<Queryable> {
+  if (conn) return conn;
+  await initDb();
+  return getDb();
 }
 
-export function queryAll<T>(sql: string, params?: unknown[]): T[] {
-  const stmt = getDb().prepare(sql);
-  return (params ? stmt.all(...params) : stmt.all()) as T[];
+export async function queryOne<T>(
+  sql: string,
+  params: unknown[] = [],
+  conn?: Queryable
+): Promise<T | undefined> {
+  const db = await getQueryable(conn);
+  const [rows] = await db.query<RowDataPacket[]>(sql, params);
+  return rows[0] as unknown as T | undefined;
 }
 
-export function execute(sql: string, params?: unknown[]): Database.RunResult {
-  const stmt = getDb().prepare(sql);
-  return params ? stmt.run(...params) : stmt.run();
+export async function queryAll<T>(
+  sql: string,
+  params: unknown[] = [],
+  conn?: Queryable
+): Promise<T[]> {
+  const db = await getQueryable(conn);
+  const [rows] = await db.query<RowDataPacket[]>(sql, params);
+  return rows as unknown as T[];
 }
 
-export function transaction<T>(fn: () => T): T {
-  return getDb().transaction(fn)();
+export async function execute(
+  sql: string,
+  params: unknown[] = [],
+  conn?: Queryable
+): Promise<ResultSetHeader> {
+  const db = await getQueryable(conn);
+  const [result] = await db.execute<ResultSetHeader>(sql, params);
+  return result;
+}
+
+export async function transaction<T>(fn: (conn: PoolConnection) => Promise<T>): Promise<T> {
+  await initDb();
+  const connection = await getDb().getConnection();
+  try {
+    await connection.beginTransaction();
+    const result = await fn(connection);
+    await connection.commit();
+    return result;
+  } catch (err) {
+    try {
+      await connection.rollback();
+    } catch {
+      // ignore rollback errors
+    }
+    throw err;
+  } finally {
+    connection.release();
+  }
 }

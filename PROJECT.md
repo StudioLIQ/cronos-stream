@@ -43,10 +43,10 @@ Payments use the x402 flow:
 
 ## 4) Tech stack (recommended)
 - Monorepo with pnpm workspaces:
-    - `apps/api`: Node.js + TypeScript + Express + Axios + SQLite
+    - `apps/api`: Node.js + TypeScript + Express + Axios + MySQL
     - `apps/web`: Vite + React + TypeScript + ethers (for signTypedData)
 - Realtime: Server-Sent Events (SSE) from `apps/api` to overlay and dashboard.
-- DB: SQLite (file), either with a small SQL migration script or a light ORM.
+- DB: MySQL (e.g., local via docker-compose, prod via managed MySQL).
 
 Reasoning: fastest path from empty folder to a working demo; SSE is enough; Vite is simpler than Next for OBS overlay.
 
@@ -233,7 +233,7 @@ effect.triggered → { eventId, actionKey, payload, amount, from, txHash, timest
 qa.created → { qaId, tier, message, displayName, amount, from, txHash, createdAt }
 qa.show → { qaId, message, tier, displayName }
 qa.updated → { qaId, status }
-9) Data model (SQLite)
+9) Data model (MySQL)
 channels
 id (uuid)
 slug (unique)

@@ -13,6 +13,89 @@ interface PaymentResult {
   value: string;
 }
 
+const DEFAULT_STREAM_INPUT = 'https://www.youtube.com/watch?v=Ap-UM1O9RBU';
+const DEFAULT_STREAM_EMBED_URL = 'https://www.youtube.com/embed/Ap-UM1O9RBU';
+
+function normalizeYouTubeStreamInput(value: string): { ok: true; embedUrl: string } | { ok: false; error: string } {
+  const trimmed = value.trim();
+  if (!trimmed) return { ok: false, error: '링크를 입력해주세요.' };
+
+  // YouTube channel ID (preferred for "currently live" embeds)
+  if (/^UC[a-zA-Z0-9_-]{20,}$/.test(trimmed)) {
+    return {
+      ok: true,
+      embedUrl: `https://www.youtube.com/embed/live_stream?channel=${encodeURIComponent(trimmed)}`,
+    };
+  }
+
+  // YouTube video ID (11 chars)
+  if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) {
+    return { ok: true, embedUrl: `https://www.youtube.com/embed/${encodeURIComponent(trimmed)}` };
+  }
+
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return { ok: false, error: '유효한 URL이 아닙니다.' };
+  }
+
+  if (url.protocol !== 'https:') {
+    return { ok: false, error: 'https URL만 지원합니다.' };
+  }
+
+  const host = url.hostname.replace(/^www\./, '');
+
+  if (host === 'youtu.be') {
+    const videoId = url.pathname.replace(/^\//, '').split('/')[0];
+    if (!videoId) return { ok: false, error: '유효한 youtu.be 링크가 아닙니다.' };
+    return { ok: true, embedUrl: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}` };
+  }
+
+  if (host === 'youtube.com') {
+    if (url.pathname.startsWith('/embed/')) {
+      return { ok: true, embedUrl: url.toString() };
+    }
+
+    if (url.pathname === '/watch') {
+      const videoId = url.searchParams.get('v');
+      if (!videoId) return { ok: false, error: 'watch URL에 v= 파라미터가 필요합니다.' };
+      return { ok: true, embedUrl: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}` };
+    }
+
+    if (url.pathname.startsWith('/live/')) {
+      const videoId = url.pathname.split('/')[2];
+      if (!videoId) return { ok: false, error: '유효한 /live 링크가 아닙니다.' };
+      return { ok: true, embedUrl: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}` };
+    }
+
+    if (url.pathname.startsWith('/channel/')) {
+      const channelId = url.pathname.split('/')[2];
+      if (!channelId) return { ok: false, error: '유효한 /channel 링크가 아닙니다.' };
+      return {
+        ok: true,
+        embedUrl: `https://www.youtube.com/embed/live_stream?channel=${encodeURIComponent(channelId)}`,
+      };
+    }
+  }
+
+  if (host === 'youtube-nocookie.com') {
+    if (url.pathname.startsWith('/embed/')) {
+      return { ok: true, embedUrl: url.toString() };
+    }
+  }
+
+  return { ok: false, error: '유튜브 링크(채널/영상)만 지원합니다.' };
+}
+
+function streamOverrideEmbedKey(slug: string): string {
+  return `stream402:streamEmbedUrlOverride:${slug}`;
+}
+
+function streamOverrideInputKey(slug: string): string {
+  return `stream402:streamInputOverride:${slug}`;
+}
+
 export default function Viewer() {
   const { slug } = useParams<{ slug: string }>();
   const [channel, setChannel] = useState<Channel | null>(null);
@@ -20,6 +103,11 @@ export default function Viewer() {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Stream embed override (local only)
+  const [streamOverrideEmbedUrl, setStreamOverrideEmbedUrl] = useState<string | null>(null);
+  const [streamInput, setStreamInput] = useState('');
+  const [streamInputError, setStreamInputError] = useState<string | null>(null);
 
   // Action trigger state
   const [paymentState, setPaymentState] = useState<PaymentState>('idle');
@@ -46,6 +134,15 @@ export default function Viewer() {
         setError(err.message);
         setLoading(false);
       });
+  }, [slug]);
+
+  useEffect(() => {
+    if (!slug) return;
+    const storedEmbedUrl = localStorage.getItem(streamOverrideEmbedKey(slug));
+    const storedInput = localStorage.getItem(streamOverrideInputKey(slug));
+    setStreamOverrideEmbedUrl(storedEmbedUrl || null);
+    setStreamInput(storedInput || '');
+    setStreamInputError(null);
   }, [slug]);
 
   const handleConnect = async () => {
@@ -146,6 +243,41 @@ export default function Viewer() {
     }
   };
 
+  const activeStreamEmbedUrl =
+    streamOverrideEmbedUrl || channel?.streamEmbedUrl || DEFAULT_STREAM_EMBED_URL;
+
+  const handleApplyStream = () => {
+    if (!slug) return;
+    const value = streamInput.trim();
+    if (!value) {
+      localStorage.removeItem(streamOverrideEmbedKey(slug));
+      localStorage.removeItem(streamOverrideInputKey(slug));
+      setStreamOverrideEmbedUrl(null);
+      setStreamInputError(null);
+      return;
+    }
+
+    const normalized = normalizeYouTubeStreamInput(value);
+    if (!normalized.ok) {
+      setStreamInputError(normalized.error);
+      return;
+    }
+
+    localStorage.setItem(streamOverrideEmbedKey(slug), normalized.embedUrl);
+    localStorage.setItem(streamOverrideInputKey(slug), value);
+    setStreamOverrideEmbedUrl(normalized.embedUrl);
+    setStreamInputError(null);
+  };
+
+  const handleResetStream = () => {
+    if (!slug) return;
+    localStorage.removeItem(streamOverrideEmbedKey(slug));
+    localStorage.removeItem(streamOverrideInputKey(slug));
+    setStreamOverrideEmbedUrl(null);
+    setStreamInput('');
+    setStreamInputError(null);
+  };
+
   if (loading) {
     return <div className="container"><p>Loading...</p></div>;
   }
@@ -184,7 +316,63 @@ export default function Viewer() {
       )}
 
       <section style={{ marginBottom: '32px' }}>
+        <h2>Live</h2>
+        <div className="card" style={{ padding: 0, overflow: 'hidden', marginTop: '12px' }}>
+          <div style={{ position: 'relative', paddingTop: '56.25%' }}>
+            <iframe
+              src={activeStreamEmbedUrl}
+              title={`${channel.displayName} livestream`}
+              allow="autoplay; encrypted-media; picture-in-picture"
+              allowFullScreen
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                border: 0,
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="card" style={{ marginTop: '12px' }}>
+          <p style={{ color: '#888', fontSize: '14px', lineHeight: 1.4 }}>
+            기본값은 데모 영상입니다. 다른 유튜브 라이브/영상 링크로 바꾸려면 아래에 입력하세요 (이 설정은 <strong>이 브라우저에만</strong> 저장됩니다).
+          </p>
+          <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
+            <input
+              type="text"
+              value={streamInput}
+              onChange={(e) => setStreamInput(e.target.value)}
+              placeholder={DEFAULT_STREAM_INPUT}
+              style={{ width: '100%' }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleApplyStream();
+              }}
+            />
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button onClick={handleApplyStream} style={{ background: '#3b82f6', color: '#fff' }}>
+                Apply
+              </button>
+              <button onClick={handleResetStream} style={{ background: '#1a1a1a', color: '#fff', border: '1px solid #333' }}>
+                Reset
+              </button>
+            </div>
+          </div>
+          {streamInputError && (
+            <p style={{ marginTop: '10px', color: '#ef4444', fontSize: '13px' }}>
+              {streamInputError}
+            </p>
+          )}
+        </div>
+      </section>
+
+      <section style={{ marginBottom: '32px' }}>
         <h2>Effects</h2>
+        <p style={{ marginTop: '8px', color: '#888', fontSize: '14px' }}>
+          효과는 스트리머의 오버레이에서 보여요: <a href={`/o/${slug}`} style={{ color: '#3b82f6' }}>/o/{slug}</a>
+        </p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '12px', marginTop: '12px' }}>
           {actions.map((action) => (
             <button

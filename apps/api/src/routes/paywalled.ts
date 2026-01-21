@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { v4 as uuid } from 'uuid';
 import { queryOne, execute } from '../db/db.js';
 import { logger } from '../logger.js';
@@ -32,8 +32,8 @@ function checkContentPolicy(message: string): { ok: boolean; reason?: string } {
   return { ok: true };
 }
 
-function isWalletBlocked(channelId: string, fromAddress: string): boolean {
-  const blocked = queryOne<{ id: string }>(
+async function isWalletBlocked(channelId: string, fromAddress: string): Promise<boolean> {
+  const blocked = await queryOne<{ id: string }>(
     'SELECT id FROM blocks WHERE channelId = ? AND fromAddress = ?',
     [channelId, fromAddress.toLowerCase()]
   );
@@ -48,210 +48,54 @@ function getPaymentHeader(req: Request): string | undefined {
 }
 
 // POST /api/channels/:slug/trigger
-router.post('/channels/:slug/trigger', async (req: Request, res: Response) => {
-  const { slug } = req.params;
-  const { actionKey } = req.body;
-
-  if (!actionKey) {
-    res.status(400).json({ error: 'Missing actionKey' });
-    return;
-  }
-
-  // Get channel
-  const channel = getChannelBySlug(slug);
-  if (!channel) {
-    res.status(404).json({ error: 'Channel not found' });
-    return;
-  }
-
-  // Get action
-  const action = getActionForChannel(channel.id, actionKey);
-  if (!action) {
-    res.status(404).json({ error: 'Action not found' });
-    return;
-  }
-
-  // Check for payment header
-  const paymentHeaderBase64 = getPaymentHeader(req);
-
-  if (!paymentHeaderBase64) {
-    // Return 402 with payment requirements
-    const requirements = buildPaymentRequirements({
-      network: channel.network,
-      payTo: channel.payToAddress,
-      amount: action.priceBaseUnits,
-      description: `Trigger effect: ${actionKey}`,
-    });
-
-    res.status(402).json(build402Response(requirements));
-    return;
-  }
-
-  // Check idempotency
-  const { paymentId, existing } = checkIdempotency(paymentHeaderBase64, channel.id);
-
-  if (existing && existing.status === 'settled') {
-    logger.info('Returning cached settlement for duplicate request', { paymentId });
-    res.json({
-      ok: true,
-      cached: true,
-      payment: {
-        paymentId,
-        txHash: existing.txHash,
-        from: existing.fromAddress,
-        to: existing.toAddress,
-        value: existing.value,
-      },
-    });
-    return;
-  }
-
-  // Parse payment header
-  let paymentHeader;
+router.post('/channels/:slug/trigger', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    paymentHeader = parsePaymentHeader(paymentHeaderBase64);
-  } catch (err) {
-    res.status(400).json({ error: 'Invalid payment header format' });
-    return;
-  }
+    const { slug } = req.params;
+    const { actionKey } = req.body;
 
-  // Build payment requirements for verification
-  const requirements = buildPaymentRequirements({
-    network: channel.network,
-    payTo: channel.payToAddress,
-    amount: action.priceBaseUnits,
-    description: `Trigger effect: ${actionKey}`,
-  });
+    if (!actionKey) {
+      res.status(400).json({ error: 'Missing actionKey' });
+      return;
+    }
 
-  // Verify payment
-  const verifyResult = await verifyPayment({
-    paymentHeaderBase64,
-    paymentRequirements: requirements,
-  });
+    // Get channel
+    const channel = await getChannelBySlug(slug);
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
 
-  if (!verifyResult.isValid) {
-    logger.warn('Payment verification failed', { paymentId, reason: verifyResult.invalidReason });
-    res.status(400).json({ error: 'Payment verification failed', reason: verifyResult.invalidReason });
-    return;
-  }
+    // Get action
+    const action = await getActionForChannel(channel.id, actionKey);
+    if (!action) {
+      res.status(404).json({ error: 'Action not found' });
+      return;
+    }
 
-  // Create payment record (if new)
-  if (!existing) {
-    createVerifiedPayment({
-      channelId: channel.id,
-      paymentId,
-      paymentHeader,
-    });
-  }
+    // Check for payment header
+    const paymentHeaderBase64 = getPaymentHeader(req);
 
-  // Settle payment
-  const settleResult = await settlePayment({
-    paymentHeaderBase64,
-    paymentRequirements: requirements,
-  });
+    if (!paymentHeaderBase64) {
+      // Return 402 with payment requirements
+      const requirements = buildPaymentRequirements({
+        network: channel.network,
+        payTo: channel.payToAddress,
+        amount: action.priceBaseUnits,
+        description: `Trigger effect: ${actionKey}`,
+      });
 
-  if (!isSettleSuccess(settleResult)) {
-    markPaymentFailed(paymentId, settleResult.error);
-    res.status(400).json({ error: 'Settlement failed', reason: settleResult.error });
-    return;
-  }
+      res.status(402).json(build402Response(requirements));
+      return;
+    }
 
-  // Mark as settled
-  markPaymentSettled(paymentId, settleResult);
+    // Check idempotency
+    const { paymentId, existing } = await checkIdempotency(paymentHeaderBase64, channel.id);
 
-  // Emit SSE event
-  const eventId = uuid();
-  const payload = JSON.parse(action.payloadJson);
-
-  broadcastToOverlay(slug, 'effect.triggered', {
-    eventId,
-    actionKey,
-    type: action.type,
-    payload,
-    amount: action.priceBaseUnits,
-    from: settleResult.from,
-    txHash: settleResult.txHash,
-    timestamp: Date.now(),
-  });
-
-  logger.info('Effect triggered', { eventId, actionKey, txHash: settleResult.txHash });
-
-  res.json({
-    ok: true,
-    payment: {
-      paymentId,
-      txHash: settleResult.txHash,
-      from: settleResult.from,
-      to: settleResult.to,
-      value: settleResult.value,
-      blockNumber: settleResult.blockNumber,
-    },
-  });
-});
-
-// POST /api/channels/:slug/qa - Submit Q&A question
-router.post('/channels/:slug/qa', async (req: Request, res: Response) => {
-  const { slug } = req.params;
-  const { message, displayName, tier = 'normal' } = req.body;
-
-  if (!message || typeof message !== 'string') {
-    res.status(400).json({ error: 'Missing or invalid message' });
-    return;
-  }
-
-  if (tier !== 'normal' && tier !== 'priority') {
-    res.status(400).json({ error: 'Invalid tier. Must be "normal" or "priority"' });
-    return;
-  }
-
-  // Check content policy BEFORE payment
-  const policyCheck = checkContentPolicy(message);
-  if (!policyCheck.ok) {
-    res.status(400).json({ error: policyCheck.reason });
-    return;
-  }
-
-  // Get channel
-  const channel = getChannelBySlug(slug);
-  if (!channel) {
-    res.status(404).json({ error: 'Channel not found' });
-    return;
-  }
-
-  // Get price for tier
-  const amount = tier === 'priority' ? PRICING.qaPriority : PRICING.qaNormal;
-
-  // Check for payment header
-  const paymentHeaderBase64 = getPaymentHeader(req);
-
-  if (!paymentHeaderBase64) {
-    const requirements = buildPaymentRequirements({
-      network: channel.network,
-      payTo: channel.payToAddress,
-      amount,
-      description: `Paid Q&A: ${tier}`,
-    });
-
-    res.status(402).json(build402Response(requirements));
-    return;
-  }
-
-  // Check idempotency
-  const { paymentId, existing } = checkIdempotency(paymentHeaderBase64, channel.id);
-
-  if (existing && existing.status === 'settled') {
-    // Check if Q&A already exists
-    const existingQa = queryOne<{ id: string }>(
-      'SELECT id FROM qa_items WHERE paymentId = ?',
-      [paymentId]
-    );
-
-    if (existingQa) {
-      logger.info('Returning cached Q&A for duplicate request', { paymentId, qaId: existingQa.id });
+    if (existing && existing.status === 'settled') {
+      logger.info('Returning cached settlement for duplicate request', { paymentId });
       res.json({
         ok: true,
         cached: true,
-        qaId: existingQa.id,
         payment: {
           paymentId,
           txHash: existing.txHash,
@@ -262,103 +106,267 @@ router.post('/channels/:slug/qa', async (req: Request, res: Response) => {
       });
       return;
     }
-  }
 
-  // Parse payment header
-  let paymentHeader;
-  try {
-    paymentHeader = parsePaymentHeader(paymentHeaderBase64);
-  } catch (err) {
-    res.status(400).json({ error: 'Invalid payment header format' });
-    return;
-  }
+    // Parse payment header
+    let paymentHeader;
+    try {
+      paymentHeader = parsePaymentHeader(paymentHeaderBase64);
+    } catch {
+      res.status(400).json({ error: 'Invalid payment header format' });
+      return;
+    }
 
-  // Build payment requirements for verification
-  const requirements = buildPaymentRequirements({
-    network: channel.network,
-    payTo: channel.payToAddress,
-    amount,
-    description: `Paid Q&A: ${tier}`,
-  });
-
-  // Verify payment
-  const verifyResult = await verifyPayment({
-    paymentHeaderBase64,
-    paymentRequirements: requirements,
-  });
-
-  if (!verifyResult.isValid) {
-    logger.warn('Payment verification failed', { paymentId, reason: verifyResult.invalidReason });
-    res.status(400).json({ error: 'Payment verification failed', reason: verifyResult.invalidReason });
-    return;
-  }
-
-  // Check if wallet is blocked AFTER verify (so we have the from address)
-  const fromAddress = paymentHeader.payload.from;
-  if (isWalletBlocked(channel.id, fromAddress)) {
-    logger.warn('Blocked wallet attempted Q&A', { paymentId, fromAddress });
-    res.status(403).json({ error: 'Your wallet has been blocked from this channel' });
-    return;
-  }
-
-  // Create payment record (if new)
-  if (!existing) {
-    createVerifiedPayment({
-      channelId: channel.id,
-      paymentId,
-      paymentHeader,
+    // Build payment requirements for verification
+    const requirements = buildPaymentRequirements({
+      network: channel.network,
+      payTo: channel.payToAddress,
+      amount: action.priceBaseUnits,
+      description: `Trigger effect: ${actionKey}`,
     });
-  }
 
-  // Settle payment
-  const settleResult = await settlePayment({
-    paymentHeaderBase64,
-    paymentRequirements: requirements,
-  });
+    // Verify payment
+    const verifyResult = await verifyPayment({
+      paymentHeaderBase64,
+      paymentRequirements: requirements,
+    });
 
-  if (!isSettleSuccess(settleResult)) {
-    markPaymentFailed(paymentId, settleResult.error);
-    res.status(400).json({ error: 'Settlement failed', reason: settleResult.error });
-    return;
-  }
+    if (!verifyResult.isValid) {
+      logger.warn('Payment verification failed', { paymentId, reason: verifyResult.invalidReason });
+      res.status(400).json({ error: 'Payment verification failed', reason: verifyResult.invalidReason });
+      return;
+    }
 
-  // Mark as settled
-  markPaymentSettled(paymentId, settleResult);
+    // Create payment record (if new)
+    if (!existing) {
+      await createVerifiedPayment({
+        channelId: channel.id,
+        paymentId,
+        paymentHeader,
+      });
+    }
 
-  // Insert Q&A item
-  const qaId = uuid();
-  execute(
-    `INSERT INTO qa_items (id, channelId, paymentId, fromAddress, displayName, message, tier, priceBaseUnits, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued')`,
-    [qaId, channel.id, paymentId, fromAddress.toLowerCase(), displayName || null, message, tier, amount]
-  );
+    // Settle payment
+    const settleResult = await settlePayment({
+      paymentHeaderBase64,
+      paymentRequirements: requirements,
+    });
 
-  // Emit SSE event
-  broadcastToAll(slug, 'qa.created', {
-    qaId,
-    tier,
-    message,
-    displayName: displayName || null,
-    amount,
-    from: settleResult.from,
-    txHash: settleResult.txHash,
-    createdAt: Date.now(),
-  });
+    if (!isSettleSuccess(settleResult)) {
+      await markPaymentFailed(paymentId, settleResult.error);
+      res.status(400).json({ error: 'Settlement failed', reason: settleResult.error });
+      return;
+    }
 
-  logger.info('Q&A created', { qaId, tier, txHash: settleResult.txHash });
+    // Mark as settled
+    await markPaymentSettled(paymentId, settleResult);
 
-  res.json({
-    ok: true,
-    qaId,
-    payment: {
-      paymentId,
-      txHash: settleResult.txHash,
+    // Emit SSE event
+    const eventId = uuid();
+    const payload = JSON.parse(action.payloadJson);
+
+    broadcastToOverlay(slug, 'effect.triggered', {
+      eventId,
+      actionKey,
+      type: action.type,
+      payload,
+      amount: action.priceBaseUnits,
       from: settleResult.from,
-      to: settleResult.to,
-      value: settleResult.value,
-      blockNumber: settleResult.blockNumber,
-    },
-  });
+      txHash: settleResult.txHash,
+      timestamp: Date.now(),
+    });
+
+    logger.info('Effect triggered', { eventId, actionKey, txHash: settleResult.txHash });
+
+    res.json({
+      ok: true,
+      payment: {
+        paymentId,
+        txHash: settleResult.txHash,
+        from: settleResult.from,
+        to: settleResult.to,
+        value: settleResult.value,
+        blockNumber: settleResult.blockNumber,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/channels/:slug/qa - Submit Q&A question
+router.post('/channels/:slug/qa', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { slug } = req.params;
+    const { message, displayName, tier = 'normal' } = req.body;
+
+    if (!message || typeof message !== 'string') {
+      res.status(400).json({ error: 'Missing or invalid message' });
+      return;
+    }
+
+    if (tier !== 'normal' && tier !== 'priority') {
+      res.status(400).json({ error: 'Invalid tier. Must be "normal" or "priority"' });
+      return;
+    }
+
+    // Check content policy BEFORE payment
+    const policyCheck = checkContentPolicy(message);
+    if (!policyCheck.ok) {
+      res.status(400).json({ error: policyCheck.reason });
+      return;
+    }
+
+    // Get channel
+    const channel = await getChannelBySlug(slug);
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
+    // Get price for tier
+    const amount = tier === 'priority' ? PRICING.qaPriority : PRICING.qaNormal;
+
+    // Check for payment header
+    const paymentHeaderBase64 = getPaymentHeader(req);
+
+    if (!paymentHeaderBase64) {
+      const requirements = buildPaymentRequirements({
+        network: channel.network,
+        payTo: channel.payToAddress,
+        amount,
+        description: `Paid Q&A: ${tier}`,
+      });
+
+      res.status(402).json(build402Response(requirements));
+      return;
+    }
+
+    // Check idempotency
+    const { paymentId, existing } = await checkIdempotency(paymentHeaderBase64, channel.id);
+
+    if (existing && existing.status === 'settled') {
+      // Check if Q&A already exists
+      const existingQa = await queryOne<{ id: string }>(
+        'SELECT id FROM qa_items WHERE paymentId = ?',
+        [paymentId]
+      );
+
+      if (existingQa) {
+        logger.info('Returning cached Q&A for duplicate request', { paymentId, qaId: existingQa.id });
+        res.json({
+          ok: true,
+          cached: true,
+          qaId: existingQa.id,
+          payment: {
+            paymentId,
+            txHash: existing.txHash,
+            from: existing.fromAddress,
+            to: existing.toAddress,
+            value: existing.value,
+          },
+        });
+        return;
+      }
+    }
+
+    // Parse payment header
+    let paymentHeader;
+    try {
+      paymentHeader = parsePaymentHeader(paymentHeaderBase64);
+    } catch {
+      res.status(400).json({ error: 'Invalid payment header format' });
+      return;
+    }
+
+    // Build payment requirements for verification
+    const requirements = buildPaymentRequirements({
+      network: channel.network,
+      payTo: channel.payToAddress,
+      amount,
+      description: `Paid Q&A: ${tier}`,
+    });
+
+    // Verify payment
+    const verifyResult = await verifyPayment({
+      paymentHeaderBase64,
+      paymentRequirements: requirements,
+    });
+
+    if (!verifyResult.isValid) {
+      logger.warn('Payment verification failed', { paymentId, reason: verifyResult.invalidReason });
+      res.status(400).json({ error: 'Payment verification failed', reason: verifyResult.invalidReason });
+      return;
+    }
+
+    // Check if wallet is blocked AFTER verify (so we have the from address)
+    const fromAddress = paymentHeader.payload.from;
+    if (await isWalletBlocked(channel.id, fromAddress)) {
+      logger.warn('Blocked wallet attempted Q&A', { paymentId, fromAddress });
+      res.status(403).json({ error: 'Your wallet has been blocked from this channel' });
+      return;
+    }
+
+    // Create payment record (if new)
+    if (!existing) {
+      await createVerifiedPayment({
+        channelId: channel.id,
+        paymentId,
+        paymentHeader,
+      });
+    }
+
+    // Settle payment
+    const settleResult = await settlePayment({
+      paymentHeaderBase64,
+      paymentRequirements: requirements,
+    });
+
+    if (!isSettleSuccess(settleResult)) {
+      await markPaymentFailed(paymentId, settleResult.error);
+      res.status(400).json({ error: 'Settlement failed', reason: settleResult.error });
+      return;
+    }
+
+    // Mark as settled
+    await markPaymentSettled(paymentId, settleResult);
+
+    // Insert Q&A item
+    const qaId = uuid();
+    await execute(
+      `INSERT INTO qa_items (id, channelId, paymentId, fromAddress, displayName, message, tier, priceBaseUnits, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued')`,
+      [qaId, channel.id, paymentId, fromAddress.toLowerCase(), displayName || null, message, tier, amount]
+    );
+
+    // Emit SSE event
+    broadcastToAll(slug, 'qa.created', {
+      qaId,
+      tier,
+      message,
+      displayName: displayName || null,
+      amount,
+      from: settleResult.from,
+      txHash: settleResult.txHash,
+      createdAt: Date.now(),
+    });
+
+    logger.info('Q&A created', { qaId, tier, txHash: settleResult.txHash });
+
+    res.json({
+      ok: true,
+      qaId,
+      payment: {
+        paymentId,
+        txHash: settleResult.txHash,
+        from: settleResult.from,
+        to: settleResult.to,
+        value: settleResult.value,
+        blockNumber: settleResult.blockNumber,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
 export default router;

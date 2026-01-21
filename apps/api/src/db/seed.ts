@@ -10,8 +10,26 @@ interface Channel {
 const SELLER_WALLET = process.env.SELLER_WALLET || '0x0000000000000000000000000000000000000000';
 const DEFAULT_NETWORK = process.env.DEFAULT_NETWORK || 'cronos-testnet';
 
-export function seed(): void {
-  const existing = queryOne<Channel>('SELECT id, slug FROM channels WHERE slug = ?', ['demo']);
+function buildDemoStreamEmbedUrl(): string | null {
+  const explicit = process.env.DEMO_STREAM_EMBED_URL?.trim();
+  if (explicit) return explicit;
+
+  const youtubeChannelId = process.env.DEMO_YOUTUBE_CHANNEL_ID?.trim();
+  if (youtubeChannelId) {
+    return `https://www.youtube.com/embed/live_stream?channel=${encodeURIComponent(youtubeChannelId)}`;
+  }
+
+  const youtubeVideoId = process.env.DEMO_YOUTUBE_VIDEO_ID?.trim();
+  if (youtubeVideoId) {
+    return `https://www.youtube.com/embed/${encodeURIComponent(youtubeVideoId)}`;
+  }
+
+  // Default demo stream (no config needed)
+  return 'https://www.youtube.com/embed/Ap-UM1O9RBU';
+}
+
+export async function seed(): Promise<void> {
+  const existing = await queryOne<Channel>('SELECT id, slug FROM channels WHERE slug = ?', ['demo']);
 
   if (existing) {
     logger.info('Demo channel already exists, skipping seed');
@@ -20,17 +38,19 @@ export function seed(): void {
 
   logger.info('Seeding demo channel and actions...');
 
-  transaction(() => {
+  await transaction(async (conn) => {
     const channelId = uuid();
+    const streamEmbedUrl = buildDemoStreamEmbedUrl();
 
-    execute(
-      `INSERT INTO channels (id, slug, displayName, payToAddress, network)
-       VALUES (?, ?, ?, ?, ?)`,
-      [channelId, 'demo', 'Demo Channel', SELLER_WALLET, DEFAULT_NETWORK]
+    await execute(
+      `INSERT INTO channels (id, slug, displayName, payToAddress, network, streamEmbedUrl)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [channelId, 'demo', 'Demo Channel', SELLER_WALLET, DEFAULT_NETWORK, streamEmbedUrl],
+      conn
     );
 
     // Sticker action
-    execute(
+    await execute(
       `INSERT INTO actions (id, channelId, actionKey, type, priceBaseUnits, payloadJson, enabled)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
@@ -44,11 +64,12 @@ export function seed(): void {
           durationMs: 3000,
         }),
         1,
-      ]
+      ],
+      conn
     );
 
     // Flash action
-    execute(
+    await execute(
       `INSERT INTO actions (id, channelId, actionKey, type, priceBaseUnits, payloadJson, enabled)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
@@ -62,11 +83,12 @@ export function seed(): void {
           durationMs: 500,
         }),
         1,
-      ]
+      ],
+      conn
     );
 
     // Sound action
-    execute(
+    await execute(
       `INSERT INTO actions (id, channelId, actionKey, type, priceBaseUnits, payloadJson, enabled)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
@@ -80,7 +102,8 @@ export function seed(): void {
           durationMs: 2000,
         }),
         1,
-      ]
+      ],
+      conn
     );
   });
 

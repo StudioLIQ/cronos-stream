@@ -37,7 +37,7 @@ Rules for execution:
 
 ---
 
-## EPIC 1 — API foundation (Express + SQLite + SSE)
+## EPIC 1 — API foundation (Express + MySQL + SSE)
 
 ### T1.1 — API server skeleton
 **Priority:** P0  
@@ -51,7 +51,7 @@ Rules for execution:
 
 ---
 
-### T1.2 — SQLite schema + migration runner
+### T1.2 — MySQL schema + migration runner
 **Priority:** P0  
 **Dependencies:** T1.1  
 **Deliverables:**
@@ -60,7 +60,7 @@ Rules for execution:
 - `apps/api/src/db/db.ts` provides query helpers.
 
 **Acceptance criteria:**
-- On startup, DB file is created and schema exists.
+- On startup, DB schema exists.
 - Re-start does not break (idempotent migrations).
 
 ---
@@ -116,7 +116,7 @@ Rules for execution:
     - USDC.e addresses
     - token name/version
 - `apps/api/src/config.ts`:
-    - API_PORT, DB_PATH
+    - API_PORT, DATABASE_URL (or DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME)
     - DEFAULT_NETWORK (`cronos-testnet`)
     - SELLER_WALLET
     - DASHBOARD_TOKEN

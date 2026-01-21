@@ -7,19 +7,12 @@ import { logger } from './logger.js';
 import { config, logConfig } from './config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-import { getDb, queryOne } from './db/db.js';
+import { initDb, queryOne } from './db/db.js';
 import { seed } from './db/seed.js';
 import { addClient, broadcast } from './sse/broker.js';
 import publicRoutes from './routes/public.js';
 import paywalledRoutes from './routes/paywalled.js';
 import dashboardRoutes from './routes/dashboard.js';
-
-// Log configuration
-logConfig();
-
-// Initialize database and seed
-getDb();
-seed();
 
 const app = express();
 
@@ -42,24 +35,32 @@ app.use('/api', paywalledRoutes);
 app.use('/api', dashboardRoutes);
 
 // SSE endpoints
-app.get('/api/channels/:slug/stream/overlay', (req, res) => {
-  const { slug } = req.params;
-  const channel = queryOne<{ id: string }>('SELECT id FROM channels WHERE slug = ?', [slug]);
-  if (!channel) {
-    res.status(404).json({ error: 'Channel not found' });
-    return;
+app.get('/api/channels/:slug/stream/overlay', async (req, res, next) => {
+  try {
+    const { slug } = req.params;
+    const channel = await queryOne<{ id: string }>('SELECT id FROM channels WHERE slug = ?', [slug]);
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+    addClient(res, slug, 'overlay');
+  } catch (err) {
+    next(err);
   }
-  addClient(res, slug, 'overlay');
 });
 
-app.get('/api/channels/:slug/stream/dashboard', (req, res) => {
-  const { slug } = req.params;
-  const channel = queryOne<{ id: string }>('SELECT id FROM channels WHERE slug = ?', [slug]);
-  if (!channel) {
-    res.status(404).json({ error: 'Channel not found' });
-    return;
+app.get('/api/channels/:slug/stream/dashboard', async (req, res, next) => {
+  try {
+    const { slug } = req.params;
+    const channel = await queryOne<{ id: string }>('SELECT id FROM channels WHERE slug = ?', [slug]);
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+    addClient(res, slug, 'dashboard');
+  } catch (err) {
+    next(err);
   }
-  addClient(res, slug, 'dashboard');
 });
 
 // Test broadcast endpoint (temporary, for verification)
@@ -106,8 +107,22 @@ app.use(
 );
 
 // Start server
-app.listen(config.apiPort, () => {
-  logger.info(`API server listening on port ${config.apiPort}`);
+async function bootstrap() {
+  // Log configuration
+  logConfig();
+
+  // Initialize database and seed
+  await initDb();
+  await seed();
+
+  app.listen(config.apiPort, () => {
+    logger.info(`API server listening on port ${config.apiPort}`);
+  });
+}
+
+bootstrap().catch((err) => {
+  logger.error('Failed to start server', { message: (err as Error).message, stack: (err as Error).stack });
+  process.exit(1);
 });
 
 export { app };
