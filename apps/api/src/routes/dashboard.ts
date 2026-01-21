@@ -139,6 +139,29 @@ interface QaItemRow {
   closedAt: string | null;
 }
 
+interface PaymentRow {
+  id: string;
+  channelId: string;
+  paymentId: string;
+  status: string;
+  scheme: string;
+  network: string;
+  asset: string;
+  fromAddress: string;
+  toAddress: string;
+  value: string;
+  nonce: string;
+  txHash: string | null;
+  blockNumber: string | null;
+  timestamp: string | null;
+  error: string | null;
+  kind: string | null;
+  actionKey: string | null;
+  qaId: string | null;
+  membershipPlanId: string | null;
+  createdAt: string;
+}
+
 // PATCH /api/channels/:slug - Update channel settings (dashboard auth)
 router.patch('/channels/:slug', async (req, res, next) => {
   try {
@@ -299,6 +322,111 @@ router.post('/channels/:slug/qa/:id/state', async (req, res, next) => {
     }
 
     res.json({ ok: true, qaId: id, status: state === 'show' ? 'showing' : state });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/channels/:slug/supports - Get support history (dashboard auth)
+// Query params: from (wallet address), kind (effect|qa|donation|membership), cursor, limit
+router.get('/channels/:slug/supports', async (req, res, next) => {
+  try {
+    const { slug } = req.params;
+    const fromAddress = (req.query.from as string)?.toLowerCase();
+    const kind = req.query.kind as string | undefined;
+    const cursor = req.query.cursor as string | undefined;
+    const limitParam = parseInt(req.query.limit as string, 10);
+    const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 100) : 20;
+
+    const channel = await getChannelBySlug(slug);
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
+    // Validate kind if provided
+    const validKinds = ['effect', 'qa', 'donation', 'membership'];
+    if (kind && !validKinds.includes(kind)) {
+      res.status(400).json({ error: `Invalid kind. Must be one of: ${validKinds.join(', ')}` });
+      return;
+    }
+
+    // Build query
+    const conditions: string[] = ['channelId = ?', 'status = ?'];
+    const params: (string | number)[] = [channel.id, 'settled'];
+
+    if (fromAddress) {
+      conditions.push('fromAddress = ?');
+      params.push(fromAddress);
+    }
+
+    if (kind) {
+      conditions.push('kind = ?');
+      params.push(kind);
+    }
+
+    // Cursor-based pagination using timestamp (newest-first)
+    if (cursor) {
+      // cursor is base64 encoded timestamp
+      try {
+        const cursorTimestamp = Buffer.from(cursor, 'base64').toString('utf-8');
+        conditions.push('timestamp < ?');
+        params.push(cursorTimestamp);
+      } catch {
+        res.status(400).json({ error: 'Invalid cursor' });
+        return;
+      }
+    }
+
+    params.push(limit + 1); // fetch one extra to determine if there are more
+
+    const sql = `
+      SELECT * FROM payments
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY timestamp DESC
+      LIMIT ?
+    `;
+
+    const rows = await queryAll<PaymentRow>(sql, params);
+
+    const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, limit) : rows;
+
+    // Get displayName for Q&A items
+    const qaIds = items.filter((r) => r.qaId).map((r) => r.qaId as string);
+    let qaDisplayNames: Record<string, string | null> = {};
+    if (qaIds.length > 0) {
+      const qaRows = await queryAll<{ id: string; displayName: string | null }>(
+        `SELECT id, displayName FROM qa_items WHERE id IN (${qaIds.map(() => '?').join(',')})`,
+        qaIds
+      );
+      qaDisplayNames = Object.fromEntries(qaRows.map((r) => [r.id, r.displayName]));
+    }
+
+    const result = items.map((row) => ({
+      paymentId: row.paymentId,
+      kind: row.kind,
+      value: row.value,
+      txHash: row.txHash,
+      timestamp: row.timestamp ? Number(row.timestamp) : null,
+      actionKey: row.actionKey,
+      qaId: row.qaId,
+      displayName: row.qaId ? qaDisplayNames[row.qaId] : null,
+    }));
+
+    // Generate next cursor
+    let nextCursor: string | null = null;
+    if (hasMore && items.length > 0) {
+      const lastItem = items[items.length - 1];
+      if (lastItem.timestamp) {
+        nextCursor = Buffer.from(lastItem.timestamp).toString('base64');
+      }
+    }
+
+    res.json({
+      items: result,
+      nextCursor,
+    });
   } catch (err) {
     next(err);
   }

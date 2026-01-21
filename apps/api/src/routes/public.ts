@@ -23,6 +23,29 @@ interface ActionRow {
   enabled: number;
 }
 
+interface PaymentRow {
+  id: string;
+  channelId: string;
+  paymentId: string;
+  status: string;
+  scheme: string;
+  network: string;
+  asset: string;
+  fromAddress: string;
+  toAddress: string;
+  value: string;
+  nonce: string;
+  txHash: string | null;
+  blockNumber: string | null;
+  timestamp: string | null;
+  error: string | null;
+  kind: string | null;
+  actionKey: string | null;
+  qaId: string | null;
+  membershipPlanId: string | null;
+  createdAt: string;
+}
+
 // GET /api/channels/:slug - Get channel info
 router.get('/channels/:slug', async (req, res, next) => {
   try {
@@ -75,6 +98,96 @@ router.get('/channels/:slug/actions', async (req, res, next) => {
         payload: JSON.parse(a.payloadJson),
       }))
     );
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/channels/:slug/supports/me - Get viewer's own support history (public, requires wallet address)
+router.get('/channels/:slug/supports/me', async (req, res, next) => {
+  try {
+    const { slug } = req.params;
+    const address = (req.query.address as string)?.toLowerCase();
+    const kind = req.query.kind as string | undefined;
+    const cursor = req.query.cursor as string | undefined;
+    const limitParam = parseInt(req.query.limit as string, 10);
+    const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 50) : 20;
+
+    if (!address || !/^0x[a-f0-9]{40}$/i.test(address)) {
+      res.status(400).json({ error: 'Missing or invalid address parameter' });
+      return;
+    }
+
+    const channel = await queryOne<{ id: string }>('SELECT id FROM channels WHERE slug = ?', [slug]);
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
+    // Validate kind if provided
+    const validKinds = ['effect', 'qa', 'donation', 'membership'];
+    if (kind && !validKinds.includes(kind)) {
+      res.status(400).json({ error: `Invalid kind. Must be one of: ${validKinds.join(', ')}` });
+      return;
+    }
+
+    // Build query
+    const conditions: string[] = ['channelId = ?', 'status = ?', 'fromAddress = ?'];
+    const params: (string | number)[] = [channel.id, 'settled', address];
+
+    if (kind) {
+      conditions.push('kind = ?');
+      params.push(kind);
+    }
+
+    // Cursor-based pagination using timestamp (newest-first)
+    if (cursor) {
+      try {
+        const cursorTimestamp = Buffer.from(cursor, 'base64').toString('utf-8');
+        conditions.push('timestamp < ?');
+        params.push(cursorTimestamp);
+      } catch {
+        res.status(400).json({ error: 'Invalid cursor' });
+        return;
+      }
+    }
+
+    params.push(limit + 1);
+
+    const sql = `
+      SELECT * FROM payments
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY timestamp DESC
+      LIMIT ?
+    `;
+
+    const rows = await queryAll<PaymentRow>(sql, params);
+
+    const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, limit) : rows;
+
+    const result = items.map((row) => ({
+      paymentId: row.paymentId,
+      kind: row.kind,
+      value: row.value,
+      txHash: row.txHash,
+      timestamp: row.timestamp ? Number(row.timestamp) : null,
+      actionKey: row.actionKey,
+      qaId: row.qaId,
+    }));
+
+    let nextCursor: string | null = null;
+    if (hasMore && items.length > 0) {
+      const lastItem = items[items.length - 1];
+      if (lastItem.timestamp) {
+        nextCursor = Buffer.from(lastItem.timestamp).toString('base64');
+      }
+    }
+
+    res.json({
+      items: result,
+      nextCursor,
+    });
   } catch (err) {
     next(err);
   }
