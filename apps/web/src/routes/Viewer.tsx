@@ -8,6 +8,8 @@ import { TopNav } from '../components/TopNav';
 import { OverlayLayer } from '../components/OverlayLayer';
 import { getFeaturedStreamBySlug } from '../data/featuredStreams';
 import { toYouTubeEmbedUrl } from '../lib/youtube';
+import { useToasts } from '../components/Toast';
+import { copyToClipboard } from '../lib/clipboard';
 
 type PaymentState = 'idle' | 'needs_payment' | 'signing' | 'settling' | 'done' | 'error';
 
@@ -41,6 +43,7 @@ function parseUsdcToBaseUnits(input: string): { ok: true; baseUnits: string } | 
 
 export default function Viewer() {
   const { slug } = useParams<{ slug: string }>();
+  const { addToast } = useToasts();
   const [channel, setChannel] = useState<Channel | null>(null);
   const [actions, setActions] = useState<Action[]>([]);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
@@ -167,8 +170,20 @@ export default function Viewer() {
       await switchToCronosTestnet();
       const state = await connectWallet();
       setWalletAddress(state.address);
+      addToast('Wallet connected successfully', 'success');
     } catch (err) {
-      setError((err as Error).message);
+      const message = (err as Error).message;
+      addToast(message, 'error');
+      setError(message);
+    }
+  };
+
+  const handleCopyTxHash = async (txHash: string) => {
+    const success = await copyToClipboard(txHash);
+    if (success) {
+      addToast('Transaction hash copied to clipboard', 'success');
+    } else {
+      addToast('Failed to copy to clipboard', 'error');
     }
   };
 
@@ -328,6 +343,7 @@ Expires At: ${nonceData.expiresAt}`;
 
       if (is402Response(result)) {
         setPaymentState('signing');
+        addToast('Please sign the transaction in your wallet', 'info');
 
         const signer = getSigner();
         if (!signer) {
@@ -338,6 +354,7 @@ Expires At: ${nonceData.expiresAt}`;
         const paymentHeader = await createPaymentHeader(signer, result.paymentRequirements);
 
         setPaymentState('settling');
+        addToast('Settling payment on-chain...', 'info');
 
         // Retry with payment
         result = await triggerAction(slug, actionKey, paymentHeader);
@@ -354,8 +371,11 @@ Expires At: ${nonceData.expiresAt}`;
         value: paymentResult.payment.value,
       });
       setPaymentState('done');
+      addToast('Effect triggered successfully!', 'success');
     } catch (err) {
-      setError((err as Error).message);
+      const message = (err as Error).message;
+      addToast(message, 'error');
+      setError(message);
       setPaymentState('error');
     }
   };
@@ -371,6 +391,7 @@ Expires At: ${nonceData.expiresAt}`;
 
       if (is402Response(result)) {
         setQaState('signing');
+        addToast('Please sign the transaction in your wallet', 'info');
 
         const signer = getSigner();
         if (!signer) {
@@ -381,6 +402,7 @@ Expires At: ${nonceData.expiresAt}`;
         const paymentHeader = await createPaymentHeader(signer, result.paymentRequirements);
 
         setQaState('settling');
+        addToast('Settling payment on-chain...', 'info');
 
         // Retry with payment
         result = await submitQA(slug, qaMessage.trim(), qaDisplayName.trim() || null, qaTier, paymentHeader);
@@ -398,8 +420,11 @@ Expires At: ${nonceData.expiresAt}`;
       });
       setQaState('done');
       setQaMessage('');
+      addToast('Question submitted successfully!', 'success');
     } catch (err) {
-      setError((err as Error).message);
+      const message = (err as Error).message;
+      addToast(message, 'error');
+      setError(message);
       setQaState('error');
     }
   };
@@ -415,6 +440,7 @@ Expires At: ${nonceData.expiresAt}`;
 
       if (is402Response(result)) {
         setMembershipState('signing');
+        addToast('Please sign the transaction in your wallet', 'info');
 
         const signer = getSigner();
         if (!signer) {
@@ -425,6 +451,7 @@ Expires At: ${nonceData.expiresAt}`;
         const paymentHeader = await createPaymentHeader(signer, result.paymentRequirements);
 
         setMembershipState('settling');
+        addToast('Settling payment on-chain...', 'info');
 
         // Retry with payment
         result = await subscribeMembership(slug, selectedPlan, paymentHeader);
@@ -437,6 +464,7 @@ Expires At: ${nonceData.expiresAt}`;
       const membershipResponse = result as MembershipResponse;
       setMembershipResult(membershipResponse);
       setMembershipState('done');
+      addToast('Membership activated successfully!', 'success');
 
       // Refresh membership status
       if (walletAddress) {
@@ -444,7 +472,9 @@ Expires At: ${nonceData.expiresAt}`;
         setMembershipStatus(status);
       }
     } catch (err) {
-      setError((err as Error).message);
+      const message = (err as Error).message;
+      addToast(message, 'error');
+      setError(message);
       setMembershipState('error');
     }
   };
@@ -460,6 +490,7 @@ Expires At: ${nonceData.expiresAt}`;
     if (!parsed.ok) {
       setDonationAmountError(parsed.error);
       setDonationState('idle');
+      addToast(parsed.error, 'warning');
       return;
     }
 
@@ -474,6 +505,7 @@ Expires At: ${nonceData.expiresAt}`;
 
       if (is402Response(result)) {
         setDonationState('signing');
+        addToast('Please sign the transaction in your wallet', 'info');
 
         const signer = getSigner();
         if (!signer) {
@@ -484,6 +516,7 @@ Expires At: ${nonceData.expiresAt}`;
         const paymentHeader = await createPaymentHeader(signer, result.paymentRequirements);
 
         setDonationState('settling');
+        addToast('Settling payment on-chain...', 'info');
 
         // Retry with payment
         result = await donate(
@@ -507,8 +540,11 @@ Expires At: ${nonceData.expiresAt}`;
       });
       setDonationState('done');
       setDonationMessage('');
+      addToast('Thank you for your donation!', 'success');
     } catch (err) {
-      setError((err as Error).message);
+      const message = (err as Error).message;
+      addToast(message, 'error');
+      setError(message);
       setDonationState('error');
     }
   };
@@ -672,6 +708,12 @@ Expires At: ${nonceData.expiresAt}`;
                       >
                         {lastResult.txHash.slice(0, 10)}...
                       </a>
+                      <button
+                        onClick={() => handleCopyTxHash(lastResult.txHash)}
+                        style={{ marginLeft: '8px', background: 'transparent', color: '#888', border: 'none', cursor: 'pointer', fontSize: '12px' }}
+                      >
+                        Copy
+                      </button>
                     </>
                   )}
                   {paymentState === 'error' && 'Error occurred'}
