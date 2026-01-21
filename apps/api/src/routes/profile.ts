@@ -62,6 +62,75 @@ interface NonceRow {
   usedAt: string | null;
 }
 
+// GET /api/profile - Fetch current profile for an address
+router.get('/profile', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const address = (req.query.address as string)?.toLowerCase();
+
+    if (!address || !/^0x[a-f0-9]{40}$/i.test(address)) {
+      res.status(400).json({ error: 'Missing or invalid address parameter' });
+      return;
+    }
+
+    const globalProfile = await queryOne<{ displayName: string }>(
+      'SELECT displayName FROM wallet_profiles WHERE address = ?',
+      [address]
+    );
+
+    res.json({
+      address,
+      displayName: globalProfile?.displayName || null,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/channels/:slug/profile - Fetch channel profile override for an address
+router.get('/channels/:slug/profile', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { slug } = req.params;
+    const address = (req.query.address as string)?.toLowerCase();
+
+    if (!address || !/^0x[a-f0-9]{40}$/i.test(address)) {
+      res.status(400).json({ error: 'Missing or invalid address parameter' });
+      return;
+    }
+
+    const channel = await getChannelBySlug(slug);
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
+    // Get global profile
+    const globalProfile = await queryOne<{ displayName: string }>(
+      'SELECT displayName FROM wallet_profiles WHERE address = ?',
+      [address]
+    );
+
+    // Get channel override
+    const channelProfile = await queryOne<{ displayNameOverride: string }>(
+      'SELECT displayNameOverride FROM channel_wallet_profiles WHERE channelId = ? AND address = ?',
+      [channel.id, address]
+    );
+
+    // Calculate effective name
+    const effectiveName = channelProfile?.displayNameOverride ||
+      globalProfile?.displayName ||
+      `${address.slice(0, 6)}...${address.slice(-4)}`;
+
+    res.json({
+      address,
+      globalDisplayName: globalProfile?.displayName || null,
+      channelDisplayNameOverride: channelProfile?.displayNameOverride || null,
+      effectiveDisplayName: effectiveName,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/profile/nonce - Get a nonce for global profile update
 router.get('/profile/nonce', async (req: Request, res: Response, next: NextFunction) => {
   try {

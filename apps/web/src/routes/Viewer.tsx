@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { fetchChannel, fetchActions, triggerAction, donate, submitQA, is402Response, fetchMembershipPlans, fetchMembershipStatus, subscribeMembership, fetchMySupports } from '../lib/api';
-import type { Channel, Action, PaymentResponse, MembershipPlan, MembershipStatus, MembershipResponse, SupportItem } from '../lib/api';
+import { fetchChannel, fetchActions, triggerAction, donate, submitQA, is402Response, fetchMembershipPlans, fetchMembershipStatus, subscribeMembership, fetchMySupports, fetchChannelProfile, fetchGlobalProfileNonce, fetchChannelProfileNonce, updateGlobalProfile, updateChannelProfile } from '../lib/api';
+import type { Channel, Action, PaymentResponse, MembershipPlan, MembershipStatus, MembershipResponse, SupportItem, ChannelProfile } from '../lib/api';
 import { connectWallet, getSigner, isConnected, switchToCronosTestnet } from '../lib/wallet';
 import { createPaymentHeader, formatUsdcAmount } from '../lib/x402';
 import { TopNav } from '../components/TopNav';
@@ -78,6 +78,14 @@ export default function Viewer() {
   const [mySupports, setMySupports] = useState<SupportItem[]>([]);
   const [mySupportsLoading, setMySupportsLoading] = useState(false);
 
+  // Nickname state
+  const [channelProfileData, setChannelProfileData] = useState<ChannelProfile | null>(null);
+  const [nicknameLoading, setNicknameLoading] = useState(false);
+  const [globalNicknameInput, setGlobalNicknameInput] = useState('');
+  const [channelNicknameInput, setChannelNicknameInput] = useState('');
+  const [nicknameSaving, setNicknameSaving] = useState(false);
+  const [nicknameError, setNicknameError] = useState<string | null>(null);
+
   useEffect(() => {
     if (!slug) return;
 
@@ -132,6 +140,28 @@ export default function Viewer() {
     refreshMySupports();
   }, [slug, walletAddress]);
 
+  // Fetch profile when wallet is connected
+  useEffect(() => {
+    if (!slug || !walletAddress) {
+      setChannelProfileData(null);
+      return;
+    }
+
+    setNicknameLoading(true);
+    fetchChannelProfile(slug, walletAddress)
+      .then((profile) => {
+        setChannelProfileData(profile);
+        setGlobalNicknameInput(profile.globalDisplayName || '');
+        setChannelNicknameInput(profile.channelDisplayNameOverride || '');
+      })
+      .catch(() => {
+        // Ignore errors
+      })
+      .finally(() => {
+        setNicknameLoading(false);
+      });
+  }, [slug, walletAddress]);
+
   const handleConnect = async () => {
     try {
       await switchToCronosTestnet();
@@ -139,6 +169,150 @@ export default function Viewer() {
       setWalletAddress(state.address);
     } catch (err) {
       setError((err as Error).message);
+    }
+  };
+
+  const handleSaveGlobalNickname = async () => {
+    if (!walletAddress || !globalNicknameInput.trim()) return;
+    setNicknameSaving(true);
+    setNicknameError(null);
+
+    try {
+      // Get nonce
+      const nonceData = await fetchGlobalProfileNonce(walletAddress);
+
+      // Sign message
+      const signer = getSigner();
+      if (!signer) throw new Error('Wallet not connected');
+
+      const message = `Stream402 Global Profile Update
+
+Address: ${walletAddress.toLowerCase()}
+Display Name: ${globalNicknameInput.trim()}
+Scope: global
+Nonce: ${nonceData.nonce}
+Issued At: ${nonceData.issuedAt}
+Expires At: ${nonceData.expiresAt}`;
+
+      const signature = await signer.signMessage(message);
+
+      // Submit update
+      await updateGlobalProfile(
+        walletAddress,
+        globalNicknameInput.trim(),
+        nonceData.nonce,
+        nonceData.issuedAt,
+        nonceData.expiresAt,
+        signature
+      );
+
+      // Refresh profile
+      if (slug) {
+        const profile = await fetchChannelProfile(slug, walletAddress);
+        setChannelProfileData(profile);
+        setGlobalNicknameInput(profile.globalDisplayName || '');
+        setChannelNicknameInput(profile.channelDisplayNameOverride || '');
+      }
+    } catch (err) {
+      setNicknameError((err as Error).message);
+    } finally {
+      setNicknameSaving(false);
+    }
+  };
+
+  const handleSaveChannelNickname = async () => {
+    if (!walletAddress || !slug || !channelNicknameInput.trim()) return;
+    setNicknameSaving(true);
+    setNicknameError(null);
+
+    try {
+      // Get nonce
+      const nonceData = await fetchChannelProfileNonce(slug, walletAddress);
+
+      // Sign message
+      const signer = getSigner();
+      if (!signer) throw new Error('Wallet not connected');
+
+      const message = `Stream402 Channel Profile Update
+
+Address: ${walletAddress.toLowerCase()}
+Channel: ${slug}
+Action: set
+Display Name Override: ${channelNicknameInput.trim()}
+Nonce: ${nonceData.nonce}
+Issued At: ${nonceData.issuedAt}
+Expires At: ${nonceData.expiresAt}`;
+
+      const signature = await signer.signMessage(message);
+
+      // Submit update
+      await updateChannelProfile(
+        slug,
+        walletAddress,
+        'set',
+        nonceData.nonce,
+        nonceData.issuedAt,
+        nonceData.expiresAt,
+        signature,
+        channelNicknameInput.trim()
+      );
+
+      // Refresh profile
+      const profile = await fetchChannelProfile(slug, walletAddress);
+      setChannelProfileData(profile);
+      setGlobalNicknameInput(profile.globalDisplayName || '');
+      setChannelNicknameInput(profile.channelDisplayNameOverride || '');
+    } catch (err) {
+      setNicknameError((err as Error).message);
+    } finally {
+      setNicknameSaving(false);
+    }
+  };
+
+  const handleClearChannelNickname = async () => {
+    if (!walletAddress || !slug) return;
+    setNicknameSaving(true);
+    setNicknameError(null);
+
+    try {
+      // Get nonce
+      const nonceData = await fetchChannelProfileNonce(slug, walletAddress);
+
+      // Sign message
+      const signer = getSigner();
+      if (!signer) throw new Error('Wallet not connected');
+
+      const message = `Stream402 Channel Profile Update
+
+Address: ${walletAddress.toLowerCase()}
+Channel: ${slug}
+Action: clear
+Nonce: ${nonceData.nonce}
+Issued At: ${nonceData.issuedAt}
+Expires At: ${nonceData.expiresAt}`;
+
+      const signature = await signer.signMessage(message);
+
+      // Submit update
+      await updateChannelProfile(
+        slug,
+        walletAddress,
+        'clear',
+        nonceData.nonce,
+        nonceData.issuedAt,
+        nonceData.expiresAt,
+        signature
+      );
+
+      // Refresh profile
+      const profile = await fetchChannelProfile(slug, walletAddress);
+      setChannelProfileData(profile);
+      setGlobalNicknameInput(profile.globalDisplayName || '');
+      setChannelNicknameInput(profile.channelDisplayNameOverride || '');
+    } catch (err) {
+      setNicknameError((err as Error).message);
+    } finally {
+      setNicknameSaving(false);
     }
   };
 
@@ -877,6 +1051,115 @@ export default function Viewer() {
                 >
                   Refresh
                 </button>
+              </div>
+            </section>
+          )}
+
+          {/* Nickname Section */}
+          {isConnected() && (
+            <section style={{ marginTop: '24px' }}>
+              <h2>Nickname</h2>
+              <div className="card" style={{ marginTop: '12px' }}>
+                {nicknameLoading ? (
+                  <p style={{ color: '#888' }}>Loading...</p>
+                ) : (
+                  <>
+                    {/* Effective nickname preview */}
+                    <div style={{ marginBottom: '16px', padding: '12px', background: '#1a1a1a', borderRadius: '6px' }}>
+                      <p style={{ fontSize: '12px', color: '#888', marginBottom: '4px' }}>Your display name:</p>
+                      <p style={{ fontSize: '16px', fontWeight: 600 }}>
+                        {channelProfileData?.effectiveDisplayName || walletAddress?.slice(0, 6) + '...' + walletAddress?.slice(-4)}
+                      </p>
+                      <p style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>
+                        {channelProfileData?.channelDisplayNameOverride
+                          ? '(channel override)'
+                          : channelProfileData?.globalDisplayName
+                          ? '(global)'
+                          : '(wallet address)'}
+                      </p>
+                    </div>
+
+                    {nicknameError && (
+                      <p style={{ color: '#ef4444', fontSize: '13px', marginBottom: '12px' }}>{nicknameError}</p>
+                    )}
+
+                    {/* Global nickname editor */}
+                    <div style={{ marginBottom: '16px' }}>
+                      <label style={{ display: 'block', marginBottom: '4px', color: '#888', fontSize: '14px' }}>
+                        Global Nickname
+                      </label>
+                      <p style={{ fontSize: '12px', color: '#666', marginBottom: '8px' }}>
+                        Used across all channels unless overridden
+                      </p>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <input
+                          type="text"
+                          value={globalNicknameInput}
+                          onChange={(e) => setGlobalNicknameInput(e.target.value)}
+                          placeholder="2-20 characters"
+                          maxLength={20}
+                          style={{ flex: 1 }}
+                          disabled={nicknameSaving}
+                        />
+                        <button
+                          onClick={handleSaveGlobalNickname}
+                          disabled={nicknameSaving || !globalNicknameInput.trim()}
+                          style={{ background: '#3b82f6', color: '#fff', whiteSpace: 'nowrap' }}
+                        >
+                          {nicknameSaving ? 'Signing...' : 'Save'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Channel override editor */}
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '4px', color: '#888', fontSize: '14px' }}>
+                        Channel Override
+                      </label>
+                      <p style={{ fontSize: '12px', color: '#666', marginBottom: '8px' }}>
+                        Optional: Use a different name for this channel only
+                      </p>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <input
+                          type="text"
+                          value={channelNicknameInput}
+                          onChange={(e) => setChannelNicknameInput(e.target.value)}
+                          placeholder="2-20 characters"
+                          maxLength={20}
+                          style={{ flex: 1 }}
+                          disabled={nicknameSaving}
+                        />
+                        <button
+                          onClick={handleSaveChannelNickname}
+                          disabled={nicknameSaving || !channelNicknameInput.trim()}
+                          style={{ background: '#6366f1', color: '#fff', whiteSpace: 'nowrap' }}
+                        >
+                          {nicknameSaving ? 'Signing...' : 'Set'}
+                        </button>
+                      </div>
+                      {channelProfileData?.channelDisplayNameOverride && (
+                        <button
+                          onClick={handleClearChannelNickname}
+                          disabled={nicknameSaving}
+                          style={{
+                            marginTop: '8px',
+                            background: 'transparent',
+                            color: '#888',
+                            border: '1px solid #333',
+                            fontSize: '12px',
+                            width: '100%',
+                          }}
+                        >
+                          {nicknameSaving ? 'Signing...' : 'Reset to Global'}
+                        </button>
+                      )}
+                    </div>
+
+                    <p style={{ fontSize: '11px', color: '#666', marginTop: '16px' }}>
+                      Nickname changes require a wallet signature (no payment).
+                    </p>
+                  </>
+                )}
               </div>
             </section>
           )}

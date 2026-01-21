@@ -293,3 +293,95 @@ export async function fetchMySupports(slug: string, address: string, limit = 10)
   if (!res.ok) throw new Error('Failed to fetch supports');
   return res.json();
 }
+
+// Profile types and functions
+
+export interface GlobalProfile {
+  address: string;
+  displayName: string | null;
+}
+
+export interface ChannelProfile {
+  address: string;
+  globalDisplayName: string | null;
+  channelDisplayNameOverride: string | null;
+  effectiveDisplayName: string;
+}
+
+export interface ProfileNonce {
+  nonce: string;
+  issuedAt: string;
+  expiresAt: string;
+}
+
+export async function fetchGlobalProfile(address: string): Promise<GlobalProfile> {
+  const res = await fetch(`${API_BASE}/profile?address=${address.toLowerCase()}`);
+  if (!res.ok) throw new Error('Failed to fetch global profile');
+  return res.json();
+}
+
+export async function fetchChannelProfile(slug: string, address: string): Promise<ChannelProfile> {
+  const res = await fetch(`${API_BASE}/channels/${slug}/profile?address=${address.toLowerCase()}`);
+  if (!res.ok) throw new Error('Failed to fetch channel profile');
+  return res.json();
+}
+
+export async function fetchGlobalProfileNonce(address: string): Promise<ProfileNonce> {
+  const res = await fetch(`${API_BASE}/profile/nonce?address=${address.toLowerCase()}`);
+  if (!res.ok) throw new Error('Failed to fetch global profile nonce');
+  return res.json();
+}
+
+export async function fetchChannelProfileNonce(slug: string, address: string): Promise<ProfileNonce> {
+  const res = await fetch(`${API_BASE}/channels/${slug}/profile/nonce?address=${address.toLowerCase()}`);
+  if (!res.ok) throw new Error('Failed to fetch channel profile nonce');
+  return res.json();
+}
+
+export async function updateGlobalProfile(
+  address: string,
+  displayName: string,
+  nonce: string,
+  issuedAt: string,
+  expiresAt: string,
+  signature: string
+): Promise<{ ok: true; displayName: string }> {
+  const res = await fetch(`${API_BASE}/profile`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ address, displayName, nonce, issuedAt, expiresAt, signature }),
+  });
+
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to update global profile');
+  return data;
+}
+
+export async function updateChannelProfile(
+  slug: string,
+  address: string,
+  action: 'set' | 'clear',
+  nonce: string,
+  issuedAt: string,
+  expiresAt: string,
+  signature: string,
+  displayNameOverride?: string
+): Promise<{ ok: true; displayNameOverride?: string; cleared?: boolean }> {
+  const res = await fetch(`${API_BASE}/channels/${slug}/profile`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      address,
+      action,
+      displayNameOverride: action === 'set' ? displayNameOverride : undefined,
+      nonce,
+      issuedAt,
+      expiresAt,
+      signature,
+    }),
+  });
+
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to update channel profile');
+  return data;
+}
