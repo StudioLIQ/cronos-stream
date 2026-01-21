@@ -31,7 +31,34 @@ interface QaUpdatedEvent {
   status: string;
 }
 
+interface SupportItem {
+  paymentId: string;
+  kind: string | null;
+  value: string;
+  txHash: string | null;
+  timestamp: number | null;
+  actionKey: string | null;
+  qaId: string | null;
+  displayName: string | null;
+}
+
+interface LeaderboardEntry {
+  fromAddress: string;
+  totalValueBaseUnits: string;
+  supportCount: number;
+  lastSupportedAt: number | null;
+  displayName: string | null;
+}
+
 const API_BASE = '/api';
+
+function formatUSDC(baseUnits: string): string {
+  const num = BigInt(baseUnits);
+  const whole = num / BigInt(1000000);
+  const frac = num % BigInt(1000000);
+  const fracStr = frac.toString().padStart(6, '0').replace(/0+$/, '');
+  return fracStr ? `${whole}.${fracStr}` : whole.toString();
+}
 
 export default function Dashboard() {
   const { slug } = useParams<{ slug: string }>();
@@ -41,6 +68,17 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'queued' | 'showing' | 'answered' | 'skipped' | 'blocked'>('queued');
+
+  // Tab state
+  const [activeTab, setActiveTab] = useState<'qa' | 'supports'>('qa');
+
+  // Supports state
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [leaderboardPeriod, setLeaderboardPeriod] = useState<'all' | '30d' | '7d' | '24h'>('all');
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+  const [walletLookup, setWalletLookup] = useState('');
+  const [walletSupports, setWalletSupports] = useState<SupportItem[]>([]);
+  const [walletSupportsLoading, setWalletSupportsLoading] = useState(false);
 
   const fetchItems = useCallback(async () => {
     if (!slug || !token) return;
@@ -74,11 +112,65 @@ export default function Dashboard() {
     }
   }, [slug, token, filter]);
 
+  const fetchLeaderboard = useCallback(async () => {
+    if (!slug || !token) return;
+    setLeaderboardLoading(true);
+
+    try {
+      const res = await fetch(`${API_BASE}/channels/${slug}/leaderboard?period=${leaderboardPeriod}&limit=20`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to fetch leaderboard');
+      }
+
+      const data = await res.json();
+      setLeaderboard(data.items);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLeaderboardLoading(false);
+    }
+  }, [slug, token, leaderboardPeriod]);
+
+  const fetchWalletSupports = useCallback(async (address: string) => {
+    if (!slug || !token || !address) return;
+    setWalletSupportsLoading(true);
+
+    try {
+      const res = await fetch(`${API_BASE}/channels/${slug}/supports?from=${address.toLowerCase()}&limit=50`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to fetch wallet supports');
+      }
+
+      const data = await res.json();
+      setWalletSupports(data.items);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setWalletSupportsLoading(false);
+    }
+  }, [slug, token]);
+
   useEffect(() => {
-    if (authenticated) {
+    if (authenticated && activeTab === 'qa') {
       fetchItems();
     }
-  }, [fetchItems, authenticated, filter]);
+  }, [fetchItems, authenticated, filter, activeTab]);
+
+  useEffect(() => {
+    if (authenticated && activeTab === 'supports') {
+      fetchLeaderboard();
+    }
+  }, [fetchLeaderboard, authenticated, leaderboardPeriod, activeTab]);
 
   useEffect(() => {
     if (!slug || !authenticated) return;
@@ -119,6 +211,17 @@ export default function Dashboard() {
   const handleAuth = () => {
     localStorage.setItem('dashboard_token', token);
     setAuthenticated(true);
+  };
+
+  const handleWalletLookup = () => {
+    if (walletLookup && /^0x[a-fA-F0-9]{40}$/.test(walletLookup)) {
+      fetchWalletSupports(walletLookup);
+    }
+  };
+
+  const handleLeaderboardClick = (address: string) => {
+    setWalletLookup(address);
+    fetchWalletSupports(address);
   };
 
   const handleAction = async (qaId: string, state: string) => {
@@ -175,21 +278,49 @@ export default function Dashboard() {
     <div className="container">
       <header style={{ marginBottom: '24px' }}>
         <h1>Dashboard - {slug}</h1>
-        <div style={{ display: 'flex', gap: '8px', marginTop: '16px', flexWrap: 'wrap' }}>
-          {(['queued', 'showing', 'answered', 'skipped', 'blocked'] as const).map((status) => (
-            <button
-              key={status}
-              onClick={() => setFilter(status)}
-              style={{
-                background: filter === status ? '#3b82f6' : '#1a1a1a',
-                color: '#fff',
-                border: '1px solid #333',
-              }}
-            >
-              {status.charAt(0).toUpperCase() + status.slice(1)}
-            </button>
-          ))}
+        {/* Tab navigation */}
+        <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+          <button
+            onClick={() => setActiveTab('qa')}
+            style={{
+              background: activeTab === 'qa' ? '#3b82f6' : '#1a1a1a',
+              color: '#fff',
+              border: '1px solid #333',
+              padding: '8px 16px',
+            }}
+          >
+            Q&A Queue
+          </button>
+          <button
+            onClick={() => setActiveTab('supports')}
+            style={{
+              background: activeTab === 'supports' ? '#3b82f6' : '#1a1a1a',
+              color: '#fff',
+              border: '1px solid #333',
+              padding: '8px 16px',
+            }}
+          >
+            Supports
+          </button>
         </div>
+        {activeTab === 'qa' && (
+          <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
+            {(['queued', 'showing', 'answered', 'skipped', 'blocked'] as const).map((status) => (
+              <button
+                key={status}
+                onClick={() => setFilter(status)}
+                style={{
+                  background: filter === status ? '#6366f1' : '#1a1a1a',
+                  color: '#fff',
+                  border: '1px solid #333',
+                  fontSize: '14px',
+                }}
+              >
+                {status.charAt(0).toUpperCase() + status.slice(1)}
+              </button>
+            ))}
+          </div>
+        )}
       </header>
 
       {error && (
@@ -201,88 +332,250 @@ export default function Dashboard() {
         </div>
       )}
 
-      {loading && <p>Loading...</p>}
+      {/* Q&A Tab */}
+      {activeTab === 'qa' && (
+        <>
+          {loading && <p>Loading...</p>}
 
-      {!loading && items.length === 0 && (
-        <p style={{ color: '#888' }}>No items with status: {filter}</p>
+          {!loading && items.length === 0 && (
+            <p style={{ color: '#888' }}>No items with status: {filter}</p>
+          )}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {items.map((item) => (
+              <div key={item.id} className="card">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                  <div>
+                    <span className={`status-badge ${item.status}`}>{item.status}</span>
+                    <span
+                      style={{
+                        marginLeft: '8px',
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        background: item.tier === 'priority' ? '#f59e0b' : '#6b7280',
+                      }}
+                    >
+                      {item.tier}
+                    </span>
+                  </div>
+                  <span style={{ fontSize: '12px', color: '#888' }}>
+                    {new Date(item.createdAt).toLocaleTimeString()}
+                  </span>
+                </div>
+
+                <p style={{ fontWeight: 500, marginBottom: '8px' }}>
+                  {item.displayName || item.fromAddress.slice(0, 8) + '...'}
+                </p>
+                <p style={{ marginBottom: '16px', lineHeight: 1.5 }}>{item.message}</p>
+
+                {filter === 'queued' && (
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <button
+                      onClick={() => handleAction(item.id, 'show')}
+                      style={{ background: '#10b981', color: '#fff' }}
+                    >
+                      Show
+                    </button>
+                    <button
+                      onClick={() => handleAction(item.id, 'answered')}
+                      style={{ background: '#3b82f6', color: '#fff' }}
+                    >
+                      Answered
+                    </button>
+                    <button
+                      onClick={() => handleAction(item.id, 'skipped')}
+                      style={{ background: '#6b7280', color: '#fff' }}
+                    >
+                      Skip
+                    </button>
+                    <button
+                      onClick={() => handleAction(item.id, 'blocked')}
+                      style={{ background: '#ef4444', color: '#fff' }}
+                    >
+                      Block
+                    </button>
+                  </div>
+                )}
+
+                {filter === 'showing' && (
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      onClick={() => handleAction(item.id, 'answered')}
+                      style={{ background: '#10b981', color: '#fff' }}
+                    >
+                      Mark Answered
+                    </button>
+                    <button
+                      onClick={() => handleAction(item.id, 'skipped')}
+                      style={{ background: '#6b7280', color: '#fff' }}
+                    >
+                      Skip
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
       )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        {items.map((item) => (
-          <div key={item.id} className="card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
-              <div>
-                <span className={`status-badge ${item.status}`}>{item.status}</span>
-                <span
+      {/* Supports Tab */}
+      {activeTab === 'supports' && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+          {/* Leaderboard Section */}
+          <div className="card">
+            <h2 style={{ marginBottom: '16px' }}>Top Supporters</h2>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
+              {(['all', '30d', '7d', '24h'] as const).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setLeaderboardPeriod(p)}
                   style={{
-                    marginLeft: '8px',
-                    padding: '4px 8px',
-                    borderRadius: '4px',
+                    background: leaderboardPeriod === p ? '#6366f1' : '#1a1a1a',
+                    color: '#fff',
+                    border: '1px solid #333',
                     fontSize: '12px',
-                    background: item.tier === 'priority' ? '#f59e0b' : '#6b7280',
+                    padding: '6px 12px',
                   }}
                 >
-                  {item.tier}
-                </span>
-              </div>
-              <span style={{ fontSize: '12px', color: '#888' }}>
-                {new Date(item.createdAt).toLocaleTimeString()}
-              </span>
+                  {p === 'all' ? 'All Time' : p}
+                </button>
+              ))}
             </div>
 
-            <p style={{ fontWeight: 500, marginBottom: '8px' }}>
-              {item.displayName || item.fromAddress.slice(0, 8) + '...'}
-            </p>
-            <p style={{ marginBottom: '16px', lineHeight: 1.5 }}>{item.message}</p>
+            {leaderboardLoading && <p>Loading...</p>}
 
-            {filter === 'queued' && (
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                <button
-                  onClick={() => handleAction(item.id, 'show')}
-                  style={{ background: '#10b981', color: '#fff' }}
-                >
-                  Show
-                </button>
-                <button
-                  onClick={() => handleAction(item.id, 'answered')}
-                  style={{ background: '#3b82f6', color: '#fff' }}
-                >
-                  Answered
-                </button>
-                <button
-                  onClick={() => handleAction(item.id, 'skipped')}
-                  style={{ background: '#6b7280', color: '#fff' }}
-                >
-                  Skip
-                </button>
-                <button
-                  onClick={() => handleAction(item.id, 'blocked')}
-                  style={{ background: '#ef4444', color: '#fff' }}
-                >
-                  Block
-                </button>
-              </div>
+            {!leaderboardLoading && leaderboard.length === 0 && (
+              <p style={{ color: '#888' }}>No supporters yet</p>
             )}
 
-            {filter === 'showing' && (
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button
-                  onClick={() => handleAction(item.id, 'answered')}
-                  style={{ background: '#10b981', color: '#fff' }}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {leaderboard.map((entry, idx) => (
+                <div
+                  key={entry.fromAddress}
+                  onClick={() => handleLeaderboardClick(entry.fromAddress)}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '12px',
+                    background: '#1a1a1a',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                  }}
                 >
-                  Mark Answered
-                </button>
-                <button
-                  onClick={() => handleAction(item.id, 'skipped')}
-                  style={{ background: '#6b7280', color: '#fff' }}
-                >
-                  Skip
-                </button>
-              </div>
-            )}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <span style={{ fontWeight: 'bold', color: '#888', width: '24px' }}>#{idx + 1}</span>
+                    <div>
+                      <p style={{ fontWeight: 500, marginBottom: '2px' }}>
+                        {entry.displayName || `${entry.fromAddress.slice(0, 6)}...${entry.fromAddress.slice(-4)}`}
+                      </p>
+                      <p style={{ fontSize: '12px', color: '#888' }}>
+                        {entry.supportCount} supports
+                      </p>
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <p style={{ fontWeight: 'bold', color: '#10b981' }}>
+                      ${formatUSDC(entry.totalValueBaseUnits)}
+                    </p>
+                    {entry.lastSupportedAt && (
+                      <p style={{ fontSize: '12px', color: '#888' }}>
+                        {new Date(entry.lastSupportedAt * 1000).toLocaleDateString()}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
-        ))}
-      </div>
+
+          {/* Wallet Lookup Section */}
+          <div className="card">
+            <h2 style={{ marginBottom: '16px' }}>Wallet Lookup</h2>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+              <input
+                type="text"
+                value={walletLookup}
+                onChange={(e) => setWalletLookup(e.target.value)}
+                placeholder="Enter wallet address (0x...)"
+                style={{ flex: 1 }}
+              />
+              <button
+                onClick={handleWalletLookup}
+                style={{ background: '#3b82f6', color: '#fff' }}
+              >
+                Search
+              </button>
+            </div>
+
+            {walletSupportsLoading && <p>Loading...</p>}
+
+            {!walletSupportsLoading && walletLookup && walletSupports.length === 0 && (
+              <p style={{ color: '#888' }}>No supports found for this wallet</p>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '400px', overflowY: 'auto' }}>
+              {walletSupports.map((support) => (
+                <div
+                  key={support.paymentId}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '12px',
+                    background: '#1a1a1a',
+                    borderRadius: '8px',
+                  }}
+                >
+                  <div>
+                    <p style={{ fontWeight: 500, marginBottom: '4px' }}>
+                      <span
+                        style={{
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          fontSize: '11px',
+                          marginRight: '8px',
+                          background:
+                            support.kind === 'donation'
+                              ? '#f59e0b'
+                              : support.kind === 'qa'
+                              ? '#3b82f6'
+                              : '#6b7280',
+                        }}
+                      >
+                        {support.kind || 'unknown'}
+                      </span>
+                      {support.actionKey || support.qaId?.slice(0, 8) || ''}
+                    </p>
+                    {support.timestamp && (
+                      <p style={{ fontSize: '12px', color: '#888' }}>
+                        {new Date(support.timestamp * 1000).toLocaleString()}
+                      </p>
+                    )}
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <p style={{ fontWeight: 'bold', color: '#10b981' }}>
+                      ${formatUSDC(support.value)}
+                    </p>
+                    {support.txHash && (
+                      <a
+                        href={`https://cronos.org/explorer/testnet3/tx/${support.txHash}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ fontSize: '11px', color: '#6366f1' }}
+                      >
+                        View tx
+                      </a>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
