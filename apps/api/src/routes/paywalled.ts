@@ -18,6 +18,22 @@ import { broadcastToOverlay, broadcastToDashboard, broadcastToAll } from '../sse
 import type { SettleSuccessResponse } from '../x402/types.js';
 import { getEffectiveDisplayName } from './profile.js';
 
+interface SupportAlertData {
+  kind: 'effect' | 'qa' | 'donation' | 'membership';
+  value: string;
+  fromAddress: string;
+  displayName?: string | null;
+  txHash: string;
+  timestamp: number;
+  actionKey?: string;
+  qaId?: string;
+  membershipPlanId?: string;
+}
+
+function emitSupportAlert(slug: string, data: SupportAlertData): void {
+  broadcastToOverlay(slug, 'support.alert', data);
+}
+
 // Simple content policy filter
 const BANNED_PATTERNS = [
   /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i, // email
@@ -197,9 +213,10 @@ router.post('/channels/:slug/trigger', async (req: Request, res: Response, next:
     // Mark as settled
     await markPaymentSettled(paymentId, settleResult);
 
-    // Emit SSE event
+    // Emit SSE events
     const eventId = uuid();
     const payload = JSON.parse(action.payloadJson);
+    const timestamp = Date.now();
 
     broadcastToOverlay(slug, 'effect.triggered', {
       eventId,
@@ -209,7 +226,17 @@ router.post('/channels/:slug/trigger', async (req: Request, res: Response, next:
       amount: action.priceBaseUnits,
       from: settleResult.from,
       txHash: settleResult.txHash,
-      timestamp: Date.now(),
+      timestamp,
+    });
+
+    // Emit unified support.alert
+    emitSupportAlert(slug, {
+      kind: 'effect',
+      value: settleResult.value,
+      fromAddress: settleResult.from,
+      txHash: settleResult.txHash,
+      timestamp,
+      actionKey,
     });
 
     logger.info('Effect triggered', { eventId, actionKey, txHash: settleResult.txHash });
@@ -389,7 +416,9 @@ router.post('/channels/:slug/qa', async (req: Request, res: Response, next: Next
       [qaId, channel.id, paymentId, fromAddress.toLowerCase(), effectiveDisplayName, message, tier, amount, isMember ? 1 : 0, memberPlanId]
     );
 
-    // Emit SSE event
+    // Emit SSE events
+    const timestamp = Date.now();
+
     broadcastToAll(slug, 'qa.created', {
       qaId,
       tier,
@@ -398,9 +427,20 @@ router.post('/channels/:slug/qa', async (req: Request, res: Response, next: Next
       amount,
       from: settleResult.from,
       txHash: settleResult.txHash,
-      createdAt: Date.now(),
+      createdAt: timestamp,
       isMember,
       memberPlanId,
+    });
+
+    // Emit unified support.alert
+    emitSupportAlert(slug, {
+      kind: 'qa',
+      value: settleResult.value,
+      fromAddress: settleResult.from,
+      displayName: effectiveDisplayName,
+      txHash: settleResult.txHash,
+      timestamp,
+      qaId,
     });
 
     logger.info('Q&A created', { qaId, tier, txHash: settleResult.txHash, displayName: effectiveDisplayName, isMember });
@@ -562,16 +602,29 @@ router.post('/channels/:slug/donate', async (req: Request, res: Response, next: 
     // Mark as settled
     await markPaymentSettled(paymentId, settleResult);
 
-    // Emit SSE event
+    // Emit SSE events
     const donationId = uuid();
+    const timestamp = Date.now();
+    const donationDisplayName = typeof displayName === 'string' && displayName.trim() ? displayName.trim() : null;
+
     broadcastToOverlay(slug, 'donation.received', {
       donationId,
       amount: settleResult.value,
       message: typeof message === 'string' && message.trim() ? message.trim() : null,
-      displayName: typeof displayName === 'string' && displayName.trim() ? displayName.trim() : null,
+      displayName: donationDisplayName,
       from: settleResult.from,
       txHash: settleResult.txHash,
-      timestamp: Date.now(),
+      timestamp,
+    });
+
+    // Emit unified support.alert
+    emitSupportAlert(slug, {
+      kind: 'donation',
+      value: settleResult.value,
+      fromAddress: settleResult.from,
+      displayName: donationDisplayName,
+      txHash: settleResult.txHash,
+      timestamp,
     });
 
     logger.info('Donation received', { donationId, paymentId, txHash: settleResult.txHash });
@@ -783,6 +836,16 @@ router.post('/channels/:slug/memberships', async (req: Request, res: Response, n
         [membershipId, channel.id, fromAddress, planId, expiresAt.toISOString().slice(0, 19).replace('T', ' '), paymentId]
       );
     }
+
+    // Emit unified support.alert
+    emitSupportAlert(slug, {
+      kind: 'membership',
+      value: settleResult.value,
+      fromAddress: settleResult.from,
+      txHash: settleResult.txHash,
+      timestamp: Date.now(),
+      membershipPlanId: planId,
+    });
 
     logger.info('Membership created/renewed', { paymentId, fromAddress, planId, expiresAt: expiresAt.toISOString() });
 
