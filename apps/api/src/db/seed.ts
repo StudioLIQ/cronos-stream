@@ -231,6 +231,29 @@ function buildSeedChannels(): SeedChannel[] {
   ];
 }
 
+async function ensureDefaultMembershipPlan(channelId: string, conn: Parameters<typeof execute>[2]): Promise<void> {
+  // Default membership plan: "Member" - 30 days for $5 USDC
+  await execute(
+    `INSERT INTO membership_plans (id, channelId, name, priceBaseUnits, durationDays, enabled)
+     SELECT ?, ?, ?, ?, ?, ?
+     FROM DUAL
+     WHERE NOT EXISTS (
+       SELECT 1 FROM membership_plans WHERE channelId = ? AND name = ?
+     )`,
+    [
+      uuid(),
+      channelId,
+      'Member',
+      '5000000', // $5 USDC in base units
+      30,
+      1,
+      channelId,
+      'Member',
+    ],
+    conn
+  );
+}
+
 async function ensureDefaultActions(channelId: string, conn: Parameters<typeof execute>[2]): Promise<void> {
   // Sticker action
   await execute(
@@ -316,6 +339,7 @@ export async function seed(): Promise<void> {
       }
 
       await ensureDefaultActions(channelId, conn);
+      await ensureDefaultMembershipPlan(channelId, conn);
     }
   });
 

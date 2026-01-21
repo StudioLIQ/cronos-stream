@@ -84,3 +84,34 @@ CREATE TABLE IF NOT EXISTS blocks (
   UNIQUE KEY uk_blocks_channel_fromAddress (channelId, fromAddress),
   CONSTRAINT fk_blocks_channel FOREIGN KEY (channelId) REFERENCES channels(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS membership_plans (
+  id CHAR(36) NOT NULL,
+  channelId CHAR(36) NOT NULL,
+  name VARCHAR(191) NOT NULL,
+  priceBaseUnits VARCHAR(64) NOT NULL,
+  durationDays INT NOT NULL,
+  enabled TINYINT(1) NOT NULL DEFAULT 1,
+  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_membership_plans_channel (channelId),
+  CONSTRAINT fk_membership_plans_channel FOREIGN KEY (channelId) REFERENCES channels(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS memberships (
+  id CHAR(36) NOT NULL,
+  channelId CHAR(36) NOT NULL,
+  fromAddress VARCHAR(64) NOT NULL,
+  planId CHAR(36) NOT NULL,
+  expiresAt DATETIME NOT NULL,
+  lastPaymentId VARCHAR(64) NULL,
+  revoked TINYINT(1) NOT NULL DEFAULT 0,
+  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_memberships_channel_address (channelId, fromAddress),
+  KEY idx_memberships_channel_expires (channelId, expiresAt),
+  CONSTRAINT fk_memberships_channel FOREIGN KEY (channelId) REFERENCES channels(id) ON DELETE CASCADE,
+  CONSTRAINT fk_memberships_plan FOREIGN KEY (planId) REFERENCES membership_plans(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
