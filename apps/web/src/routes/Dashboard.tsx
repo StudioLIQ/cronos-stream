@@ -50,6 +50,17 @@ interface LeaderboardEntry {
   displayName: string | null;
 }
 
+interface MemberItem {
+  id: string;
+  fromAddress: string;
+  planId: string;
+  planName: string;
+  expiresAt: string;
+  revoked: boolean;
+  active: boolean;
+  createdAt: string;
+}
+
 const API_BASE = '/api';
 
 function formatUSDC(baseUnits: string): string {
@@ -70,7 +81,7 @@ export default function Dashboard() {
   const [filter, setFilter] = useState<'queued' | 'showing' | 'answered' | 'skipped' | 'blocked'>('queued');
 
   // Tab state
-  const [activeTab, setActiveTab] = useState<'qa' | 'supports'>('qa');
+  const [activeTab, setActiveTab] = useState<'qa' | 'supports' | 'members'>('qa');
 
   // Supports state
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
@@ -79,6 +90,12 @@ export default function Dashboard() {
   const [walletLookup, setWalletLookup] = useState('');
   const [walletSupports, setWalletSupports] = useState<SupportItem[]>([]);
   const [walletSupportsLoading, setWalletSupportsLoading] = useState(false);
+
+  // Members state
+  const [members, setMembers] = useState<MemberItem[]>([]);
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [memberFilter, setMemberFilter] = useState<'all' | 'active' | 'expired' | 'revoked'>('active');
+  const [memberSearch, setMemberSearch] = useState('');
 
   const fetchItems = useCallback(async () => {
     if (!slug || !token) return;
@@ -160,6 +177,57 @@ export default function Dashboard() {
     }
   }, [slug, token]);
 
+  const fetchMembers = useCallback(async () => {
+    if (!slug || !token) return;
+    setMembersLoading(true);
+
+    try {
+      const params = new URLSearchParams();
+      if (memberFilter !== 'all') params.set('status', memberFilter);
+      if (memberSearch) params.set('search', memberSearch);
+
+      const res = await fetch(`${API_BASE}/channels/${slug}/memberships?${params.toString()}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to fetch members');
+      }
+
+      const data = await res.json();
+      setMembers(data.items);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setMembersLoading(false);
+    }
+  }, [slug, token, memberFilter, memberSearch]);
+
+  const revokeMember = async (address: string) => {
+    if (!slug || !token) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/channels/${slug}/memberships/${address}/revoke`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to revoke membership');
+      }
+
+      // Refresh members list
+      fetchMembers();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
   useEffect(() => {
     if (authenticated && activeTab === 'qa') {
       fetchItems();
@@ -171,6 +239,12 @@ export default function Dashboard() {
       fetchLeaderboard();
     }
   }, [fetchLeaderboard, authenticated, leaderboardPeriod, activeTab]);
+
+  useEffect(() => {
+    if (authenticated && activeTab === 'members') {
+      fetchMembers();
+    }
+  }, [fetchMembers, authenticated, memberFilter, activeTab]);
 
   useEffect(() => {
     if (!slug || !authenticated) return;
@@ -301,6 +375,17 @@ export default function Dashboard() {
             }}
           >
             Supports
+          </button>
+          <button
+            onClick={() => setActiveTab('members')}
+            style={{
+              background: activeTab === 'members' ? '#3b82f6' : '#1a1a1a',
+              color: '#fff',
+              border: '1px solid #333',
+              padding: '8px 16px',
+            }}
+          >
+            Members
           </button>
         </div>
         {activeTab === 'qa' && (
@@ -573,6 +658,110 @@ export default function Dashboard() {
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Members Tab */}
+      {activeTab === 'members' && (
+        <div className="card">
+          <h2 style={{ marginBottom: '16px' }}>Members</h2>
+
+          {/* Filters */}
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
+            {(['active', 'all', 'expired', 'revoked'] as const).map((status) => (
+              <button
+                key={status}
+                onClick={() => setMemberFilter(status)}
+                style={{
+                  background: memberFilter === status ? '#6366f1' : '#1a1a1a',
+                  color: '#fff',
+                  border: '1px solid #333',
+                  fontSize: '12px',
+                  padding: '6px 12px',
+                }}
+              >
+                {status.charAt(0).toUpperCase() + status.slice(1)}
+              </button>
+            ))}
+          </div>
+
+          {/* Search */}
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+            <input
+              type="text"
+              value={memberSearch}
+              onChange={(e) => setMemberSearch(e.target.value)}
+              placeholder="Search by wallet address..."
+              style={{ flex: 1 }}
+            />
+            <button
+              onClick={fetchMembers}
+              style={{ background: '#3b82f6', color: '#fff' }}
+            >
+              Search
+            </button>
+          </div>
+
+          {membersLoading && <p>Loading...</p>}
+
+          {!membersLoading && members.length === 0 && (
+            <p style={{ color: '#888' }}>No members found</p>
+          )}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {members.map((member) => (
+              <div
+                key={member.id}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '12px',
+                  background: '#1a1a1a',
+                  borderRadius: '8px',
+                }}
+              >
+                <div>
+                  <p style={{ fontWeight: 500, marginBottom: '4px' }}>
+                    <span
+                      style={{
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        fontSize: '11px',
+                        marginRight: '8px',
+                        background: member.active
+                          ? '#10b981'
+                          : member.revoked
+                          ? '#ef4444'
+                          : '#6b7280',
+                      }}
+                    >
+                      {member.active ? 'Active' : member.revoked ? 'Revoked' : 'Expired'}
+                    </span>
+                    {`${member.fromAddress.slice(0, 6)}...${member.fromAddress.slice(-4)}`}
+                  </p>
+                  <p style={{ fontSize: '12px', color: '#888' }}>
+                    {member.planName} - Expires: {new Date(member.expiresAt).toLocaleDateString()}
+                  </p>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  {!member.revoked && (
+                    <button
+                      onClick={() => revokeMember(member.fromAddress)}
+                      style={{
+                        background: '#ef4444',
+                        color: '#fff',
+                        fontSize: '12px',
+                        padding: '6px 12px',
+                      }}
+                    >
+                      Revoke
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
