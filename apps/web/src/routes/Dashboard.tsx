@@ -10,6 +10,8 @@ interface QaItem {
   tier: string;
   priceBaseUnits: string;
   status: string;
+  isMember: boolean;
+  memberPlanId: string | null;
   createdAt: string;
   shownAt: string | null;
   closedAt: string | null;
@@ -24,6 +26,8 @@ interface QaCreatedEvent {
   from: string;
   txHash: string;
   createdAt: number;
+  isMember: boolean;
+  memberPlanId: string | null;
 }
 
 interface QaUpdatedEvent {
@@ -262,6 +266,8 @@ export default function Dashboard() {
             tier: event.tier,
             priceBaseUnits: event.amount,
             status: 'queued',
+            isMember: event.isMember || false,
+            memberPlanId: event.memberPlanId || null,
             createdAt: new Date(event.createdAt).toISOString(),
             shownAt: null,
             closedAt: null,
@@ -430,11 +436,10 @@ export default function Dashboard() {
             {items.map((item) => (
               <div key={item.id} className="card">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
-                  <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                     <span className={`status-badge ${item.status}`}>{item.status}</span>
                     <span
                       style={{
-                        marginLeft: '8px',
                         padding: '4px 8px',
                         borderRadius: '4px',
                         fontSize: '12px',
@@ -443,6 +448,19 @@ export default function Dashboard() {
                     >
                       {item.tier}
                     </span>
+                    {item.isMember && (
+                      <span
+                        style={{
+                          padding: '4px 8px',
+                          borderRadius: '4px',
+                          fontSize: '12px',
+                          background: '#6366f1',
+                          fontWeight: 'bold',
+                        }}
+                      >
+                        MEMBER
+                      </span>
+                    )}
                   </div>
                   <span style={{ fontSize: '12px', color: '#888' }}>
                     {new Date(item.createdAt).toLocaleTimeString()}

@@ -25,6 +25,37 @@ const BANNED_PATTERNS = [
   /\b(?:fuck|shit|ass|bitch|nigger|faggot)\b/i, // banned words
 ];
 
+interface ActiveMembership {
+  planId: string;
+  planName: string;
+}
+
+async function getActiveMembership(channelId: string, address: string): Promise<ActiveMembership | null> {
+  const membership = await queryOne<{
+    planId: string;
+    planName: string;
+    expiresAt: string;
+    revoked: number;
+  }>(
+    `SELECT m.planId, p.name as planName, m.expiresAt, m.revoked
+     FROM memberships m
+     JOIN membership_plans p ON m.planId = p.id
+     WHERE m.channelId = ? AND m.fromAddress = ?`,
+    [channelId, address.toLowerCase()]
+  );
+
+  if (!membership) return null;
+  if (membership.revoked) return null;
+
+  const expiresAt = new Date(membership.expiresAt);
+  if (expiresAt <= new Date()) return null;
+
+  return {
+    planId: membership.planId,
+    planName: membership.planName,
+  };
+}
+
 function checkContentPolicy(message: string): { ok: boolean; reason?: string } {
   for (const pattern of BANNED_PATTERNS) {
     if (pattern.test(message)) {
@@ -346,11 +377,16 @@ router.post('/channels/:slug/qa', async (req: Request, res: Response, next: Next
     // Resolve effective display name from wallet profile (snapshot at time of submit)
     const effectiveDisplayName = await getEffectiveDisplayName(channel.id, fromAddress) || displayName || null;
 
+    // Check membership status at time of submit
+    const activeMembership = await getActiveMembership(channel.id, fromAddress);
+    const isMember = activeMembership !== null;
+    const memberPlanId = activeMembership?.planId || null;
+
     // Insert Q&A item
     await execute(
-      `INSERT INTO qa_items (id, channelId, paymentId, fromAddress, displayName, message, tier, priceBaseUnits, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued')`,
-      [qaId, channel.id, paymentId, fromAddress.toLowerCase(), effectiveDisplayName, message, tier, amount]
+      `INSERT INTO qa_items (id, channelId, paymentId, fromAddress, displayName, message, tier, priceBaseUnits, status, isMember, memberPlanId)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)`,
+      [qaId, channel.id, paymentId, fromAddress.toLowerCase(), effectiveDisplayName, message, tier, amount, isMember ? 1 : 0, memberPlanId]
     );
 
     // Emit SSE event
@@ -363,9 +399,11 @@ router.post('/channels/:slug/qa', async (req: Request, res: Response, next: Next
       from: settleResult.from,
       txHash: settleResult.txHash,
       createdAt: Date.now(),
+      isMember,
+      memberPlanId,
     });
 
-    logger.info('Q&A created', { qaId, tier, txHash: settleResult.txHash, displayName: effectiveDisplayName });
+    logger.info('Q&A created', { qaId, tier, txHash: settleResult.txHash, displayName: effectiveDisplayName, isMember });
 
     res.json({
       ok: true,

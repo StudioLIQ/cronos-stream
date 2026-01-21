@@ -135,6 +135,8 @@ interface QaItemRow {
   tier: string;
   priceBaseUnits: string;
   status: string;
+  isMember: number;
+  memberPlanId: string | null;
   createdAt: string;
   shownAt: string | null;
   closedAt: string | null;
@@ -232,6 +234,8 @@ router.get('/channels/:slug/qa', async (req, res, next) => {
         tier: item.tier,
         priceBaseUnits: item.priceBaseUnits,
         status: item.status,
+        isMember: item.isMember === 1,
+        memberPlanId: item.memberPlanId,
         createdAt: item.createdAt,
         shownAt: item.shownAt,
         closedAt: item.closedAt,
@@ -285,6 +289,7 @@ router.post('/channels/:slug/qa/:id/state', async (req, res, next) => {
         message: qaItem.message,
         tier: qaItem.tier,
         displayName: qaItem.displayName,
+        isMember: qaItem.isMember === 1,
       });
 
       // Emit qa.updated to dashboard

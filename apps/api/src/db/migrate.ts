@@ -98,5 +98,18 @@ export async function migrate(db: Pool): Promise<void> {
     ddl: `CREATE INDEX idx_payments_from_timestamp ON payments (fromAddress, timestamp)`,
   });
 
+  // T7.5: Membership perks - add isMember and memberPlanId to qa_items
+  await ensureColumnExists(db, {
+    table: 'qa_items',
+    column: 'isMember',
+    ddl: `ALTER TABLE qa_items ADD COLUMN isMember TINYINT(1) NOT NULL DEFAULT 0 AFTER status`,
+  });
+
+  await ensureColumnExists(db, {
+    table: 'qa_items',
+    column: 'memberPlanId',
+    ddl: `ALTER TABLE qa_items ADD COLUMN memberPlanId CHAR(36) NULL AFTER isMember`,
+  });
+
   logger.info('Database migration complete');
 }

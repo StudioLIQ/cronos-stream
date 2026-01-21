@@ -23,6 +23,7 @@ interface QaShowEvent {
   message: string;
   tier: string;
   displayName: string | null;
+  isMember?: boolean;
 }
 
 interface DonationReceivedEvent {
@@ -46,6 +47,7 @@ interface ActiveQuestion {
   message: string;
   displayName: string | null;
   tier: string;
+  isMember: boolean;
   expiresAt: number;
 }
 
@@ -154,6 +156,7 @@ export function OverlayLayer({ slug, position = 'absolute', zIndex = 10 }: Overl
       message: event.message,
       displayName: event.displayName,
       tier: event.tier,
+      isMember: event.isMember || false,
       expiresAt: Date.now() + 15000,
     });
   };
@@ -240,11 +243,27 @@ export function OverlayLayer({ slug, position = 'absolute', zIndex = 10 }: Overl
             animation: 'question-slide 0.5s ease-out',
           }}
         >
-          {activeQuestion.displayName && (
-            <p style={{ fontSize: '18px', fontWeight: 600, marginBottom: '8px' }}>
-              {activeQuestion.displayName}
-            </p>
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '8px' }}>
+            {activeQuestion.displayName && (
+              <span style={{ fontSize: '18px', fontWeight: 600 }}>
+                {activeQuestion.displayName}
+              </span>
+            )}
+            {activeQuestion.isMember && (
+              <span
+                style={{
+                  padding: '2px 8px',
+                  borderRadius: '4px',
+                  fontSize: '12px',
+                  background: 'rgba(99, 102, 241, 0.9)',
+                  fontWeight: 'bold',
+                  textTransform: 'uppercase',
+                }}
+              >
+                Member
+              </span>
+            )}
+          </div>
           <p style={{ fontSize: '24px', fontWeight: 500, lineHeight: 1.4 }}>
             {activeQuestion.message}
           </p>

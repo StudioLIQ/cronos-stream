@@ -36,6 +36,8 @@ CREATE TABLE IF NOT EXISTS qa_items (
   tier ENUM('normal', 'priority') NOT NULL,
   priceBaseUnits VARCHAR(64) NOT NULL,
   status ENUM('queued', 'showing', 'answered', 'skipped', 'blocked') NOT NULL DEFAULT 'queued',
+  isMember TINYINT(1) NOT NULL DEFAULT 0,
+  memberPlanId CHAR(36) NULL,
   createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   shownAt DATETIME NULL,
   closedAt DATETIME NULL,
