@@ -115,3 +115,43 @@ CREATE TABLE IF NOT EXISTS memberships (
   CONSTRAINT fk_memberships_channel FOREIGN KEY (channelId) REFERENCES channels(id) ON DELETE CASCADE,
   CONSTRAINT fk_memberships_plan FOREIGN KEY (planId) REFERENCES membership_plans(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Wallet profile tables for wallet-signed nicknames
+
+CREATE TABLE IF NOT EXISTS wallet_profiles (
+  address VARCHAR(64) NOT NULL,
+  displayName VARCHAR(191) NOT NULL,
+  updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (address)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS channel_wallet_profiles (
+  channelId CHAR(36) NOT NULL,
+  address VARCHAR(64) NOT NULL,
+  displayNameOverride VARCHAR(191) NOT NULL,
+  updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (channelId, address),
+  CONSTRAINT fk_channel_wallet_profiles_channel FOREIGN KEY (channelId) REFERENCES channels(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS wallet_profile_nonces (
+  address VARCHAR(64) NOT NULL,
+  nonce VARCHAR(64) NOT NULL,
+  expiresAt DATETIME NOT NULL,
+  usedAt DATETIME NULL,
+  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (address, nonce),
+  KEY idx_wallet_profile_nonces_address_expires (address, expiresAt)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS channel_profile_nonces (
+  channelId CHAR(36) NOT NULL,
+  address VARCHAR(64) NOT NULL,
+  nonce VARCHAR(64) NOT NULL,
+  expiresAt DATETIME NOT NULL,
+  usedAt DATETIME NULL,
+  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (channelId, address, nonce),
+  KEY idx_channel_profile_nonces_channel_address_expires (channelId, address, expiresAt),
+  CONSTRAINT fk_channel_profile_nonces_channel FOREIGN KEY (channelId) REFERENCES channels(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
