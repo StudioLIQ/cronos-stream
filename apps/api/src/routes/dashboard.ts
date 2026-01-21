@@ -432,4 +432,96 @@ router.get('/channels/:slug/supports', async (req, res, next) => {
   }
 });
 
+// GET /api/channels/:slug/leaderboard - Get top supporters (dashboard auth)
+// Query params: period (all|30d|7d|24h), limit
+router.get('/channels/:slug/leaderboard', async (req, res, next) => {
+  try {
+    const { slug } = req.params;
+    const period = (req.query.period as string) || 'all';
+    const limitParam = parseInt(req.query.limit as string, 10);
+    const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 100) : 20;
+
+    const channel = await getChannelBySlug(slug);
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
+    // Validate period
+    const validPeriods = ['all', '30d', '7d', '24h'];
+    if (!validPeriods.includes(period)) {
+      res.status(400).json({ error: `Invalid period. Must be one of: ${validPeriods.join(', ')}` });
+      return;
+    }
+
+    // Calculate timestamp cutoff based on period
+    let timestampCutoff: number | null = null;
+    const now = Math.floor(Date.now() / 1000);
+    switch (period) {
+      case '24h':
+        timestampCutoff = now - 24 * 60 * 60;
+        break;
+      case '7d':
+        timestampCutoff = now - 7 * 24 * 60 * 60;
+        break;
+      case '30d':
+        timestampCutoff = now - 30 * 24 * 60 * 60;
+        break;
+      // 'all' - no cutoff
+    }
+
+    // Build query with conditional timestamp filter
+    const conditions: string[] = ['channelId = ?', 'status = ?'];
+    const params: (string | number)[] = [channel.id, 'settled'];
+
+    if (timestampCutoff !== null) {
+      conditions.push('timestamp >= ?');
+      params.push(timestampCutoff);
+    }
+
+    params.push(limit);
+
+    // Aggregate by fromAddress
+    // Use CAST to ensure value is treated as numeric for SUM
+    const sql = `
+      SELECT
+        fromAddress,
+        CAST(SUM(CAST(value AS UNSIGNED)) AS CHAR) as totalValueBaseUnits,
+        COUNT(*) as supportCount,
+        MAX(timestamp) as lastSupportedAt
+      FROM payments
+      WHERE ${conditions.join(' AND ')}
+      GROUP BY fromAddress
+      ORDER BY SUM(CAST(value AS UNSIGNED)) DESC, MAX(timestamp) DESC
+      LIMIT ?
+    `;
+
+    interface LeaderboardRow {
+      fromAddress: string;
+      totalValueBaseUnits: string;
+      supportCount: number;
+      lastSupportedAt: string | null;
+    }
+
+    const rows = await queryAll<LeaderboardRow>(sql, params);
+
+    // Get displayNames for wallets (from wallet_profiles once implemented)
+    // For now, return null displayNames
+    const result = rows.map((row) => ({
+      fromAddress: row.fromAddress,
+      totalValueBaseUnits: row.totalValueBaseUnits,
+      supportCount: Number(row.supportCount),
+      lastSupportedAt: row.lastSupportedAt ? Number(row.lastSupportedAt) : null,
+      displayName: null, // Will be populated when wallet profiles are implemented
+    }));
+
+    res.json({
+      period,
+      items: result,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;
