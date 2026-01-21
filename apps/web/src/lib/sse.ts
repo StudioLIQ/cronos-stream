@@ -23,6 +23,7 @@ export function connectSSE(url: string, onEvent: SSEEventHandler): EventSource {
   // Listen for named events
   const eventTypes = [
     'effect.triggered',
+    'donation.received',
     'qa.created',
     'qa.show',
     'qa.updated',

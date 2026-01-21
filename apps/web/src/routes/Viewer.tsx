@@ -5,6 +5,7 @@ import type { Channel, Action, PaymentResponse } from '../lib/api';
 import { connectWallet, getSigner, isConnected, switchToCronosTestnet } from '../lib/wallet';
 import { createPaymentHeader, formatUsdcAmount } from '../lib/x402';
 import { TopNav } from '../components/TopNav';
+import { OverlayLayer } from '../components/OverlayLayer';
 import { getFeaturedStreamBySlug } from '../data/featuredStreams';
 import { toYouTubeEmbedUrl } from '../lib/youtube';
 
@@ -260,8 +261,21 @@ export default function Viewer() {
 
   const featured = slug ? getFeaturedStreamBySlug(slug) : undefined;
   const featuredEmbedUrl = featured ? toYouTubeEmbedUrl(featured.youtube.url) : null;
+  const featuredAutoplayUrl = featuredEmbedUrl
+    ? (() => {
+        try {
+          const url = new URL(featuredEmbedUrl);
+          url.searchParams.set('autoplay', '1');
+          url.searchParams.set('mute', '1');
+          url.searchParams.set('playsinline', '1');
+          return url.toString();
+        } catch {
+          return featuredEmbedUrl;
+        }
+      })()
+    : null;
 
-  if (!featured || !featuredEmbedUrl) {
+  if (!featured || !featuredAutoplayUrl) {
     return (
       <div>
         <TopNav />
@@ -327,7 +341,7 @@ export default function Viewer() {
             <div className="card" style={{ padding: 0, overflow: 'hidden', marginTop: '12px' }}>
               <div style={{ position: 'relative', paddingTop: '56.25%' }}>
                 <iframe
-                  src={featuredEmbedUrl}
+                  src={featuredAutoplayUrl}
                   title={`${channel.displayName} livestream`}
                   allow="autoplay; encrypted-media; picture-in-picture"
                   allowFullScreen
@@ -340,6 +354,7 @@ export default function Viewer() {
                     border: 0,
                   }}
                 />
+                {slug && <OverlayLayer slug={slug} />}
               </div>
             </div>
           </section>
