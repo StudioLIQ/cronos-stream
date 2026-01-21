@@ -5,6 +5,7 @@ import { logger } from '../logger.js';
 import { config } from '../config.js';
 import { getChannelBySlug } from './public.js';
 import { broadcastToOverlay, broadcastToDashboard, broadcastToAll } from '../sse/broker.js';
+import { getEffectiveDisplayName } from './profile.js';
 
 const router = Router();
 
@@ -416,6 +417,14 @@ router.get('/channels/:slug/supports', async (req, res, next) => {
       qaDisplayNames = Object.fromEntries(qaRows.map((r) => [r.id, r.displayName]));
     }
 
+    // Get displayNames from wallet profiles for non-Q&A items
+    const walletDisplayNames: Record<string, string | null> = {};
+    const uniqueAddresses = [...new Set(items.map((r) => r.fromAddress.toLowerCase()))];
+    for (const addr of uniqueAddresses) {
+      const effectiveName = await getEffectiveDisplayName(channel.id, addr);
+      walletDisplayNames[addr] = effectiveName;
+    }
+
     const result = items.map((row) => ({
       paymentId: row.paymentId,
       kind: row.kind,
@@ -424,7 +433,10 @@ router.get('/channels/:slug/supports', async (req, res, next) => {
       timestamp: row.timestamp ? Number(row.timestamp) : null,
       actionKey: row.actionKey,
       qaId: row.qaId,
-      displayName: row.qaId ? qaDisplayNames[row.qaId] : null,
+      fromAddress: row.fromAddress,
+      displayName: row.qaId
+        ? qaDisplayNames[row.qaId]
+        : walletDisplayNames[row.fromAddress.toLowerCase()],
     }));
 
     // Generate next cursor
@@ -518,14 +530,19 @@ router.get('/channels/:slug/leaderboard', async (req, res, next) => {
 
     const rows = await queryAll<LeaderboardRow>(sql, params);
 
-    // Get displayNames for wallets (from wallet_profiles once implemented)
-    // For now, return null displayNames
+    // Get displayNames for wallets from wallet profiles
+    const walletDisplayNames: Record<string, string | null> = {};
+    for (const row of rows) {
+      const effectiveName = await getEffectiveDisplayName(channel.id, row.fromAddress);
+      walletDisplayNames[row.fromAddress.toLowerCase()] = effectiveName;
+    }
+
     const result = rows.map((row) => ({
       fromAddress: row.fromAddress,
       totalValueBaseUnits: row.totalValueBaseUnits,
       supportCount: Number(row.supportCount),
       lastSupportedAt: row.lastSupportedAt ? Number(row.lastSupportedAt) : null,
-      displayName: null, // Will be populated when wallet profiles are implemented
+      displayName: walletDisplayNames[row.fromAddress.toLowerCase()],
     }));
 
     res.json({

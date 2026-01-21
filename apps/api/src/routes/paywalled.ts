@@ -16,6 +16,7 @@ import {
 } from '../x402/idempotency.js';
 import { broadcastToOverlay, broadcastToDashboard, broadcastToAll } from '../sse/broker.js';
 import type { SettleSuccessResponse } from '../x402/types.js';
+import { getEffectiveDisplayName } from './profile.js';
 
 // Simple content policy filter
 const BANNED_PATTERNS = [
@@ -342,11 +343,14 @@ router.post('/channels/:slug/qa', async (req: Request, res: Response, next: Next
     // Mark as settled
     await markPaymentSettled(paymentId, settleResult);
 
+    // Resolve effective display name from wallet profile (snapshot at time of submit)
+    const effectiveDisplayName = await getEffectiveDisplayName(channel.id, fromAddress) || displayName || null;
+
     // Insert Q&A item
     await execute(
       `INSERT INTO qa_items (id, channelId, paymentId, fromAddress, displayName, message, tier, priceBaseUnits, status)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued')`,
-      [qaId, channel.id, paymentId, fromAddress.toLowerCase(), displayName || null, message, tier, amount]
+      [qaId, channel.id, paymentId, fromAddress.toLowerCase(), effectiveDisplayName, message, tier, amount]
     );
 
     // Emit SSE event
@@ -354,14 +358,14 @@ router.post('/channels/:slug/qa', async (req: Request, res: Response, next: Next
       qaId,
       tier,
       message,
-      displayName: displayName || null,
+      displayName: effectiveDisplayName,
       amount,
       from: settleResult.from,
       txHash: settleResult.txHash,
       createdAt: Date.now(),
     });
 
-    logger.info('Q&A created', { qaId, tier, txHash: settleResult.txHash });
+    logger.info('Q&A created', { qaId, tier, txHash: settleResult.txHash, displayName: effectiveDisplayName });
 
     res.json({
       ok: true,
