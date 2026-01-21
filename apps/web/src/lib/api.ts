@@ -270,3 +270,26 @@ export async function subscribeMembership(
 
   return data as MembershipResponse;
 }
+
+// Support history types and functions
+
+export interface SupportItem {
+  paymentId: string;
+  kind: string | null;
+  value: string;
+  txHash: string | null;
+  timestamp: number | null;
+  actionKey: string | null;
+  qaId: string | null;
+}
+
+export interface MySupportsResponse {
+  items: SupportItem[];
+  nextCursor: string | null;
+}
+
+export async function fetchMySupports(slug: string, address: string, limit = 10): Promise<MySupportsResponse> {
+  const res = await fetch(`${API_BASE}/channels/${slug}/supports/me?address=${address.toLowerCase()}&limit=${limit}`);
+  if (!res.ok) throw new Error('Failed to fetch supports');
+  return res.json();
+}

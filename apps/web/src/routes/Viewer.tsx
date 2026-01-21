@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { fetchChannel, fetchActions, triggerAction, donate, submitQA, is402Response, fetchMembershipPlans, fetchMembershipStatus, subscribeMembership } from '../lib/api';
-import type { Channel, Action, PaymentResponse, MembershipPlan, MembershipStatus, MembershipResponse } from '../lib/api';
+import { fetchChannel, fetchActions, triggerAction, donate, submitQA, is402Response, fetchMembershipPlans, fetchMembershipStatus, subscribeMembership, fetchMySupports } from '../lib/api';
+import type { Channel, Action, PaymentResponse, MembershipPlan, MembershipStatus, MembershipResponse, SupportItem } from '../lib/api';
 import { connectWallet, getSigner, isConnected, switchToCronosTestnet } from '../lib/wallet';
 import { createPaymentHeader, formatUsdcAmount } from '../lib/x402';
 import { TopNav } from '../components/TopNav';
@@ -74,6 +74,10 @@ export default function Viewer() {
   const [membershipState, setMembershipState] = useState<PaymentState>('idle');
   const [membershipResult, setMembershipResult] = useState<MembershipResponse | null>(null);
 
+  // My supports state
+  const [mySupports, setMySupports] = useState<SupportItem[]>([]);
+  const [mySupportsLoading, setMySupportsLoading] = useState(false);
+
   useEffect(() => {
     if (!slug) return;
 
@@ -108,6 +112,24 @@ export default function Viewer() {
       .catch(() => {
         // Ignore errors for membership status
       });
+  }, [slug, walletAddress]);
+
+  // Fetch my supports when wallet is connected
+  const refreshMySupports = async () => {
+    if (!slug || !walletAddress) return;
+    setMySupportsLoading(true);
+    try {
+      const data = await fetchMySupports(slug, walletAddress, 10);
+      setMySupports(data.items);
+    } catch {
+      // Ignore errors
+    } finally {
+      setMySupportsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    refreshMySupports();
   }, [slug, walletAddress]);
 
   const handleConnect = async () => {
@@ -769,6 +791,95 @@ export default function Viewer() {
               )}
             </div>
           </section>
+
+          {/* My Supports Section */}
+          {isConnected() && (
+            <section style={{ marginTop: '24px' }}>
+              <h2>My Supports</h2>
+              <div className="card" style={{ marginTop: '12px' }}>
+                {mySupportsLoading && <p style={{ color: '#888' }}>Loading...</p>}
+
+                {!mySupportsLoading && mySupports.length === 0 && (
+                  <p style={{ color: '#888', fontSize: '14px' }}>
+                    No supports yet. Support this channel!
+                  </p>
+                )}
+
+                {!mySupportsLoading && mySupports.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {mySupports.map((support) => (
+                      <div
+                        key={support.paymentId}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          padding: '8px',
+                          background: '#1a1a1a',
+                          borderRadius: '6px',
+                        }}
+                      >
+                        <div>
+                          <span
+                            style={{
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              fontSize: '11px',
+                              marginRight: '8px',
+                              background:
+                                support.kind === 'donation'
+                                  ? '#f59e0b'
+                                  : support.kind === 'qa'
+                                  ? '#3b82f6'
+                                  : support.kind === 'membership'
+                                  ? '#6366f1'
+                                  : '#6b7280',
+                            }}
+                          >
+                            {support.kind || 'effect'}
+                          </span>
+                          {support.timestamp && (
+                            <span style={{ fontSize: '12px', color: '#888' }}>
+                              {new Date(support.timestamp * 1000).toLocaleDateString()}
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <span style={{ fontWeight: 'bold', color: '#10b981' }}>
+                            ${formatUsdcAmount(support.value)}
+                          </span>
+                          {support.txHash && (
+                            <a
+                              href={`https://explorer.cronos.org/testnet/tx/${support.txHash}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{ marginLeft: '8px', fontSize: '11px', color: '#6366f1' }}
+                            >
+                              tx
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <button
+                  onClick={refreshMySupports}
+                  style={{
+                    marginTop: '12px',
+                    background: 'transparent',
+                    color: '#888',
+                    border: '1px solid #333',
+                    fontSize: '12px',
+                    width: '100%',
+                  }}
+                >
+                  Refresh
+                </button>
+              </div>
+            </section>
+          )}
         </aside>
       </div>
       </div>
