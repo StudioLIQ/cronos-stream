@@ -94,6 +94,39 @@ export async function triggerAction(
   return data as PaymentResponse;
 }
 
+export async function donate(
+  slug: string,
+  amountBaseUnits: string,
+  message: string | null,
+  displayName: string | null,
+  paymentHeader?: string
+): Promise<PaymentResponse | Error402Response> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (paymentHeader) {
+    headers['X-PAYMENT'] = paymentHeader;
+  }
+
+  const res = await fetch(`${API_BASE}/channels/${slug}/donate`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ amountBaseUnits, message, displayName }),
+  });
+
+  const data = await res.json();
+
+  if (res.status === 402) {
+    return data as Error402Response;
+  }
+
+  if (!res.ok) {
+    throw new Error(data.error || 'Failed to donate');
+  }
+
+  return data as PaymentResponse;
+}
+
 export async function submitQA(
   slug: string,
   message: string,

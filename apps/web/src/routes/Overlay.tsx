@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { connectSSE } from '../lib/sse';
+import { formatUsdcAmount } from '../lib/x402';
 
 interface EffectEvent {
   eventId: string;
@@ -25,6 +26,16 @@ interface QaShowEvent {
   displayName: string | null;
 }
 
+interface DonationReceivedEvent {
+  donationId: string;
+  amount: string;
+  message: string | null;
+  displayName: string | null;
+  from: string;
+  txHash: string;
+  timestamp: number;
+}
+
 interface ActiveSticker {
   id: string;
   imageUrl: string;
@@ -39,10 +50,21 @@ interface ActiveQuestion {
   expiresAt: number;
 }
 
+interface ActiveDonation {
+  id: string;
+  amount: string;
+  message: string | null;
+  displayName: string | null;
+  from: string;
+  txHash: string;
+  expiresAt: number;
+}
+
 export default function Overlay() {
   const { slug } = useParams<{ slug: string }>();
   const [activeStickers, setActiveStickers] = useState<ActiveSticker[]>([]);
   const [activeQuestion, setActiveQuestion] = useState<ActiveQuestion | null>(null);
+  const [activeDonation, setActiveDonation] = useState<ActiveDonation | null>(null);
   const [flashColor, setFlashColor] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -56,6 +78,9 @@ export default function Overlay() {
       } else if (eventName === 'qa.show') {
         const event = data as QaShowEvent;
         handleQaShow(event);
+      } else if (eventName === 'donation.received') {
+        const event = data as DonationReceivedEvent;
+        handleDonation(event);
       }
     });
 
@@ -73,10 +98,14 @@ export default function Overlay() {
       if (activeQuestion && activeQuestion.expiresAt < now) {
         setActiveQuestion(null);
       }
+
+      if (activeDonation && activeDonation.expiresAt < now) {
+        setActiveDonation(null);
+      }
     }, 100);
 
     return () => clearInterval(interval);
-  }, [activeQuestion]);
+  }, [activeQuestion, activeDonation]);
 
   const handleEffect = (event: EffectEvent) => {
     const duration = event.payload.durationMs || 3000;
@@ -120,6 +149,18 @@ export default function Overlay() {
       displayName: event.displayName,
       tier: event.tier,
       expiresAt: Date.now() + 15000, // Show for 15 seconds
+    });
+  };
+
+  const handleDonation = (event: DonationReceivedEvent) => {
+    setActiveDonation({
+      id: event.donationId,
+      amount: event.amount,
+      message: event.message,
+      displayName: event.displayName,
+      from: event.from,
+      txHash: event.txHash,
+      expiresAt: Date.now() + 12000, // Show for 12 seconds
     });
   };
 
@@ -206,6 +247,38 @@ export default function Overlay() {
         </div>
       )}
 
+      {/* Donation alert */}
+      {activeDonation && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '60px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: 'rgba(17, 24, 39, 0.95)',
+            color: '#fff',
+            padding: '18px 28px',
+            borderRadius: '16px',
+            border: '2px solid #f59e0b',
+            maxWidth: '80%',
+            textAlign: 'center',
+            animation: 'donation-pop 0.5s ease-out',
+          }}
+        >
+          <p style={{ fontSize: '24px', fontWeight: 700, marginBottom: '6px' }}>
+            Donation ${formatUsdcAmount(activeDonation.amount)} USDC
+          </p>
+          <p style={{ fontSize: '16px', opacity: 0.9 }}>
+            {activeDonation.displayName || `${activeDonation.from.slice(0, 6)}...${activeDonation.from.slice(-4)}`}
+          </p>
+          {activeDonation.message && (
+            <p style={{ fontSize: '18px', marginTop: '10px', lineHeight: 1.4 }}>
+              {activeDonation.message}
+            </p>
+          )}
+        </div>
+      )}
+
       <style>{`
         @keyframes flash-fade {
           0% { opacity: 1; }
@@ -221,6 +294,11 @@ export default function Overlay() {
         @keyframes question-slide {
           0% { transform: translateX(-50%) translateY(100px); opacity: 0; }
           100% { transform: translateX(-50%) translateY(0); opacity: 1; }
+        }
+
+        @keyframes donation-pop {
+          0% { transform: translateX(-50%) translateY(-20px) scale(0.9); opacity: 0; }
+          100% { transform: translateX(-50%) translateY(0) scale(1); opacity: 1; }
         }
       `}</style>
     </div>

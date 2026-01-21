@@ -176,6 +176,9 @@ pnpm start
    - 기본값: `https://www.youtube.com/watch?v=Ap-UM1O9RBU`
    - `http://localhost:5173/v/demo` → Live 섹션 아래 입력창에 유튜브 채널 ID(UC...) 또는 유튜브 URL 입력 → Apply
    - Reset 버튼으로 기본값으로 복원 (이 설정은 브라우저에만 저장됨)
+6) (선택) Viewer에서 후원 테스트:
+   - `http://localhost:5173/v/demo` → Donate 섹션에서 금액 입력/프리셋 선택 → Donate
+   - 스트리머 오버레이 `http://localhost:5173/o/demo`에서 donation alert 표시 확인
 
 ---
 

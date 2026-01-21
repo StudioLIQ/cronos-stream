@@ -3,7 +3,7 @@ import { v4 as uuid } from 'uuid';
 import { queryOne, execute } from '../db/db.js';
 import { logger } from '../logger.js';
 import { getChannelBySlug, getActionForChannel } from './public.js';
-import { buildPaymentRequirements, build402Response } from '../x402/paymentRequirements.js';
+import { buildPaymentRequirements, build402Response, validateAmount } from '../x402/paymentRequirements.js';
 import { verifyPayment, settlePayment, isSettleSuccess } from '../x402/facilitator.js';
 import { PRICING } from '../x402/constants.js';
 import {
@@ -355,6 +355,172 @@ router.post('/channels/:slug/qa', async (req: Request, res: Response, next: Next
     res.json({
       ok: true,
       qaId,
+      payment: {
+        paymentId,
+        txHash: settleResult.txHash,
+        from: settleResult.from,
+        to: settleResult.to,
+        value: settleResult.value,
+        blockNumber: settleResult.blockNumber,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/channels/:slug/donate - Send a donation with a user-chosen amount
+router.post('/channels/:slug/donate', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { slug } = req.params;
+    const { amountBaseUnits, message, displayName } = req.body;
+
+    if (!amountBaseUnits || typeof amountBaseUnits !== 'string') {
+      res.status(400).json({ error: 'Missing or invalid amountBaseUnits' });
+      return;
+    }
+
+    try {
+      validateAmount(amountBaseUnits);
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+      return;
+    }
+
+    if (BigInt(amountBaseUnits) <= 0n) {
+      res.status(400).json({ error: 'amountBaseUnits must be greater than 0' });
+      return;
+    }
+
+    if (message !== undefined && message !== null && typeof message !== 'string') {
+      res.status(400).json({ error: 'Invalid message' });
+      return;
+    }
+
+    if (displayName !== undefined && displayName !== null && typeof displayName !== 'string') {
+      res.status(400).json({ error: 'Invalid displayName' });
+      return;
+    }
+
+    // Check content policy BEFORE payment
+    if (typeof message === 'string' && message.trim()) {
+      const policyCheck = checkContentPolicy(message);
+      if (!policyCheck.ok) {
+        res.status(400).json({ error: policyCheck.reason });
+        return;
+      }
+    }
+
+    // Get channel
+    const channel = await getChannelBySlug(slug);
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
+    // Check for payment header
+    const paymentHeaderBase64 = getPaymentHeader(req);
+
+    if (!paymentHeaderBase64) {
+      const requirements = buildPaymentRequirements({
+        network: channel.network,
+        payTo: channel.payToAddress,
+        amount: amountBaseUnits,
+        description: 'Donation',
+      });
+
+      res.status(402).json(build402Response(requirements));
+      return;
+    }
+
+    // Check idempotency
+    const { paymentId, existing } = await checkIdempotency(paymentHeaderBase64, channel.id);
+
+    if (existing && existing.status === 'settled') {
+      logger.info('Returning cached settlement for duplicate donation request', { paymentId });
+      res.json({
+        ok: true,
+        cached: true,
+        payment: {
+          paymentId,
+          txHash: existing.txHash,
+          from: existing.fromAddress,
+          to: existing.toAddress,
+          value: existing.value,
+        },
+      });
+      return;
+    }
+
+    // Parse payment header
+    let paymentHeader;
+    try {
+      paymentHeader = parsePaymentHeader(paymentHeaderBase64);
+    } catch {
+      res.status(400).json({ error: 'Invalid payment header format' });
+      return;
+    }
+
+    // Build payment requirements for verification
+    const requirements = buildPaymentRequirements({
+      network: channel.network,
+      payTo: channel.payToAddress,
+      amount: amountBaseUnits,
+      description: 'Donation',
+    });
+
+    // Verify payment
+    const verifyResult = await verifyPayment({
+      paymentHeaderBase64,
+      paymentRequirements: requirements,
+    });
+
+    if (!verifyResult.isValid) {
+      logger.warn('Donation payment verification failed', { paymentId, reason: verifyResult.invalidReason });
+      res.status(400).json({ error: 'Payment verification failed', reason: verifyResult.invalidReason });
+      return;
+    }
+
+    // Create payment record (if new)
+    if (!existing) {
+      await createVerifiedPayment({
+        channelId: channel.id,
+        paymentId,
+        paymentHeader,
+      });
+    }
+
+    // Settle payment
+    const settleResult = await settlePayment({
+      paymentHeaderBase64,
+      paymentRequirements: requirements,
+    });
+
+    if (!isSettleSuccess(settleResult)) {
+      await markPaymentFailed(paymentId, settleResult.error);
+      res.status(400).json({ error: 'Settlement failed', reason: settleResult.error });
+      return;
+    }
+
+    // Mark as settled
+    await markPaymentSettled(paymentId, settleResult);
+
+    // Emit SSE event
+    const donationId = uuid();
+    broadcastToOverlay(slug, 'donation.received', {
+      donationId,
+      amount: settleResult.value,
+      message: typeof message === 'string' && message.trim() ? message.trim() : null,
+      displayName: typeof displayName === 'string' && displayName.trim() ? displayName.trim() : null,
+      from: settleResult.from,
+      txHash: settleResult.txHash,
+      timestamp: Date.now(),
+    });
+
+    logger.info('Donation received', { donationId, paymentId, txHash: settleResult.txHash });
+
+    res.json({
+      ok: true,
       payment: {
         paymentId,
         txHash: settleResult.txHash,

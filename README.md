@@ -4,9 +4,10 @@ Stream402 is a platform-agnostic "paid interaction" layer for livestreamers usin
 
 ## Features
 
+- **Donations**: Viewers can donate a custom amount (USDC.e) while watching the stream
 - **Paid Effects**: Sticker, flash, and sound effects triggered by viewers
 - **Paid Q&A**: Prioritized question queue with tier-based pricing
-- **OBS Overlay**: Browser source that displays effects and highlighted questions
+- **OBS Overlay**: Browser source that displays effects, donation alerts, and highlighted questions
 - **Dashboard**: Queue management for streamers
 
 ## Prerequisites
@@ -143,6 +144,7 @@ Network details:
 
 | Action | Price (USDC.e) |
 |--------|---------------|
+| Donation | Custom |
 | Effect (sticker/flash/sound) | $0.05 |
 | Q&A Normal | $0.25 |
 | Q&A Priority | $0.50 |
@@ -155,6 +157,7 @@ Network details:
 
 ### Paywalled (returns 402 without X-PAYMENT header)
 - `POST /api/channels/:slug/trigger` - Trigger effect
+- `POST /api/channels/:slug/donate` - Send donation (custom amount)
 - `POST /api/channels/:slug/qa` - Submit question
 
 ### Dashboard (requires Bearer token)

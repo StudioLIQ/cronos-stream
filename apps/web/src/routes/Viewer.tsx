@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { fetchChannel, fetchActions, triggerAction, submitQA, is402Response } from '../lib/api';
+import { fetchChannel, fetchActions, triggerAction, donate, submitQA, is402Response } from '../lib/api';
 import type { Channel, Action, PaymentResponse } from '../lib/api';
 import { connectWallet, getSigner, isConnected, switchToCronosTestnet } from '../lib/wallet';
 import { createPaymentHeader, formatUsdcAmount } from '../lib/x402';
@@ -15,6 +15,28 @@ interface PaymentResult {
 
 const DEFAULT_STREAM_INPUT = 'https://www.youtube.com/watch?v=Ap-UM1O9RBU';
 const DEFAULT_STREAM_EMBED_URL = 'https://www.youtube.com/embed/Ap-UM1O9RBU';
+
+function parseUsdcToBaseUnits(input: string): { ok: true; baseUnits: string } | { ok: false; error: string } {
+  let normalized = input.trim();
+  if (!normalized) return { ok: false, error: '후원 금액을 입력해주세요.' };
+
+  if (normalized.startsWith('.')) normalized = `0${normalized}`;
+  if (normalized.endsWith('.')) normalized = normalized.slice(0, -1);
+
+  if (!/^\d+(\.\d{0,6})?$/.test(normalized)) {
+    return { ok: false, error: '금액 형식이 올바르지 않습니다. 예) 0.05' };
+  }
+
+  const [wholePart, fractionalPart = ''] = normalized.split('.');
+  const whole = BigInt(wholePart || '0');
+  const fractionalPadded = fractionalPart.padEnd(6, '0');
+  const fractional = BigInt(fractionalPadded || '0');
+
+  const baseUnits = (whole * 1_000_000n + fractional).toString();
+  if (BigInt(baseUnits) <= 0n) return { ok: false, error: '후원 금액은 0보다 커야 합니다.' };
+
+  return { ok: true, baseUnits };
+}
 
 function normalizeYouTubeStreamInput(value: string): { ok: true; embedUrl: string } | { ok: false; error: string } {
   const trimmed = value.trim();
@@ -108,6 +130,14 @@ export default function Viewer() {
   const [streamOverrideEmbedUrl, setStreamOverrideEmbedUrl] = useState<string | null>(null);
   const [streamInput, setStreamInput] = useState('');
   const [streamInputError, setStreamInputError] = useState<string | null>(null);
+
+  // Donation state
+  const [donationAmount, setDonationAmount] = useState('0.05');
+  const [donationDisplayName, setDonationDisplayName] = useState('');
+  const [donationMessage, setDonationMessage] = useState('');
+  const [donationState, setDonationState] = useState<PaymentState>('idle');
+  const [donationResult, setDonationResult] = useState<PaymentResult | null>(null);
+  const [donationAmountError, setDonationAmountError] = useState<string | null>(null);
 
   // Action trigger state
   const [paymentState, setPaymentState] = useState<PaymentState>('idle');
@@ -243,6 +273,70 @@ export default function Viewer() {
     }
   };
 
+  const handleDonate = async () => {
+    if (!slug) return;
+
+    setDonationState('needs_payment');
+    setDonationResult(null);
+    setDonationAmountError(null);
+
+    const parsed = parseUsdcToBaseUnits(donationAmount);
+    if (!parsed.ok) {
+      setDonationAmountError(parsed.error);
+      setDonationState('idle');
+      return;
+    }
+
+    try {
+      // First request without payment
+      let result = await donate(
+        slug,
+        parsed.baseUnits,
+        donationMessage.trim() || null,
+        donationDisplayName.trim() || null
+      );
+
+      if (is402Response(result)) {
+        setDonationState('signing');
+
+        const signer = getSigner();
+        if (!signer) {
+          throw new Error('Wallet not connected');
+        }
+
+        // Create payment header
+        const paymentHeader = await createPaymentHeader(signer, result.paymentRequirements);
+
+        setDonationState('settling');
+
+        // Retry with payment
+        result = await donate(
+          slug,
+          parsed.baseUnits,
+          donationMessage.trim() || null,
+          donationDisplayName.trim() || null,
+          paymentHeader
+        );
+
+        if (is402Response(result)) {
+          throw new Error('Payment still required after signing');
+        }
+      }
+
+      const paymentResult = result as PaymentResponse;
+      setDonationResult({
+        txHash: paymentResult.payment.txHash,
+        from: paymentResult.payment.from,
+        value: paymentResult.payment.value,
+      });
+      setDonationState('done');
+      setDonationMessage('');
+    } catch (err) {
+      setError((err as Error).message);
+      setDonationState('error');
+    }
+  };
+
   const activeStreamEmbedUrl =
     streamOverrideEmbedUrl || channel?.streamEmbedUrl || DEFAULT_STREAM_EMBED_URL;
 
@@ -364,6 +458,119 @@ export default function Viewer() {
             <p style={{ marginTop: '10px', color: '#ef4444', fontSize: '13px' }}>
               {streamInputError}
             </p>
+          )}
+        </div>
+      </section>
+
+      <section style={{ marginBottom: '32px' }}>
+        <h2>Donate</h2>
+        <div className="card" style={{ marginTop: '12px' }}>
+          <p style={{ color: '#888', fontSize: '14px', lineHeight: 1.4 }}>
+            유튜브를 보면서 바로 후원할 수 있어요. 금액은 USDC 기준이며, 아래에서 직접 입력하거나 프리셋을 선택하세요.
+          </p>
+
+          <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
+            {[
+              { label: '$0.05', value: '0.05' },
+              { label: '$0.25', value: '0.25' },
+              { label: '$1.00', value: '1' },
+              { label: '$5.00', value: '5' },
+            ].map((preset) => (
+              <button
+                key={preset.value}
+                onClick={() => {
+                  setDonationAmount(preset.value);
+                  setDonationAmountError(null);
+                }}
+                style={{
+                  background: donationAmount === preset.value ? '#3b82f6' : '#1a1a1a',
+                  color: '#fff',
+                  border: '1px solid #333',
+                }}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ marginTop: '12px' }}>
+            <label style={{ display: 'block', marginBottom: '4px', color: '#888', fontSize: '14px' }}>
+              Amount (USDC)
+            </label>
+            <input
+              type="text"
+              value={donationAmount}
+              onChange={(e) => setDonationAmount(e.target.value)}
+              placeholder="0.05"
+              style={{ width: '100%' }}
+            />
+            {donationAmountError && (
+              <p style={{ marginTop: '8px', color: '#ef4444', fontSize: '13px' }}>
+                {donationAmountError}
+              </p>
+            )}
+          </div>
+
+          <div style={{ marginTop: '12px' }}>
+            <label style={{ display: 'block', marginBottom: '4px', color: '#888', fontSize: '14px' }}>
+              Display Name (optional)
+            </label>
+            <input
+              type="text"
+              value={donationDisplayName}
+              onChange={(e) => setDonationDisplayName(e.target.value)}
+              placeholder="Anonymous"
+              style={{ width: '100%' }}
+            />
+          </div>
+
+          <div style={{ marginTop: '12px' }}>
+            <label style={{ display: 'block', marginBottom: '4px', color: '#888', fontSize: '14px' }}>
+              Message (optional)
+            </label>
+            <textarea
+              value={donationMessage}
+              onChange={(e) => setDonationMessage(e.target.value)}
+              placeholder="Say something..."
+              rows={2}
+              style={{ width: '100%', resize: 'vertical' }}
+            />
+          </div>
+
+          <button
+            onClick={handleDonate}
+            disabled={!isConnected() || donationState === 'signing' || donationState === 'settling'}
+            style={{ marginTop: '12px', background: '#f59e0b', color: '#000', width: '100%' }}
+          >
+            {donationState === 'signing'
+              ? 'Signing...'
+              : donationState === 'settling'
+              ? 'Settling...'
+              : `Donate $${donationAmount}`}
+          </button>
+
+          {donationState !== 'idle' && (
+            <div className="card" style={{ marginTop: '12px' }}>
+              <p>
+                {donationState === 'needs_payment' && 'Requesting payment...'}
+                {donationState === 'signing' && 'Please sign the transaction...'}
+                {donationState === 'settling' && 'Settling payment...'}
+                {donationState === 'done' && donationResult && (
+                  <>
+                    Thanks! TX:{' '}
+                    <a
+                      href={`https://explorer.cronos.org/testnet/tx/${donationResult.txHash}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: '#3b82f6' }}
+                    >
+                      {donationResult.txHash.slice(0, 10)}...
+                    </a>
+                  </>
+                )}
+                {donationState === 'error' && 'Error occurred'}
+              </p>
+            </div>
           )}
         </div>
       </section>
