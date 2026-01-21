@@ -36,6 +36,18 @@ interface DonationReceivedEvent {
   timestamp: number;
 }
 
+interface SupportAlertEvent {
+  kind: 'effect' | 'qa' | 'donation' | 'membership';
+  value: string;
+  fromAddress: string;
+  displayName?: string | null;
+  txHash: string;
+  timestamp: number;
+  actionKey?: string;
+  qaId?: string;
+  membershipPlanId?: string;
+}
+
 interface ActiveSticker {
   id: string;
   imageUrl: string;
@@ -61,6 +73,15 @@ interface ActiveDonation {
   expiresAt: number;
 }
 
+interface ActiveSupportAlert {
+  id: string;
+  kind: 'effect' | 'qa' | 'donation' | 'membership';
+  value: string;
+  displayName: string | null;
+  fromAddress: string;
+  expiresAt: number;
+}
+
 export type OverlayLayerProps = {
   slug: string;
   /**
@@ -74,12 +95,17 @@ export type OverlayLayerProps = {
   zIndex?: number;
 };
 
+const SUPPORT_ALERT_DURATION = 5000; // 5 seconds
+const MAX_VISIBLE_ALERTS = 3;
+
 export function OverlayLayer({ slug, position = 'absolute', zIndex = 10 }: OverlayLayerProps) {
   const [activeStickers, setActiveStickers] = useState<ActiveSticker[]>([]);
   const [activeQuestion, setActiveQuestion] = useState<ActiveQuestion | null>(null);
   const [activeDonation, setActiveDonation] = useState<ActiveDonation | null>(null);
   const [flashColor, setFlashColor] = useState<string | null>(null);
+  const [supportAlerts, setSupportAlerts] = useState<ActiveSupportAlert[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const alertIdCounter = useRef(0);
 
   useEffect(() => {
     const eventSource = connectSSE(`/api/channels/${slug}/stream/overlay`, (eventName, data) => {
@@ -89,6 +115,8 @@ export function OverlayLayer({ slug, position = 'absolute', zIndex = 10 }: Overl
         handleQaShow(data as QaShowEvent);
       } else if (eventName === 'donation.received') {
         handleDonation(data as DonationReceivedEvent);
+      } else if (eventName === 'support.alert') {
+        handleSupportAlert(data as SupportAlertEvent);
       }
     });
 
@@ -97,11 +125,12 @@ export function OverlayLayer({ slug, position = 'absolute', zIndex = 10 }: Overl
     };
   }, [slug]);
 
-  // Cleanup expired stickers
+  // Cleanup expired stickers and alerts
   useEffect(() => {
     const interval = setInterval(() => {
       const now = Date.now();
       setActiveStickers((prev) => prev.filter((s) => s.expiresAt > now));
+      setSupportAlerts((prev) => prev.filter((a) => a.expiresAt > now));
 
       if (activeQuestion && activeQuestion.expiresAt < now) {
         setActiveQuestion(null);
@@ -171,6 +200,47 @@ export function OverlayLayer({ slug, position = 'absolute', zIndex = 10 }: Overl
       txHash: event.txHash,
       expiresAt: Date.now() + 12000,
     });
+  };
+
+  const handleSupportAlert = (event: SupportAlertEvent) => {
+    const alertId = `support-${alertIdCounter.current++}`;
+    const newAlert: ActiveSupportAlert = {
+      id: alertId,
+      kind: event.kind,
+      value: event.value,
+      displayName: event.displayName || null,
+      fromAddress: event.fromAddress,
+      expiresAt: Date.now() + SUPPORT_ALERT_DURATION,
+    };
+
+    setSupportAlerts((prev) => {
+      // Keep only the most recent alerts up to MAX_VISIBLE_ALERTS
+      const updated = [...prev, newAlert];
+      if (updated.length > MAX_VISIBLE_ALERTS) {
+        return updated.slice(-MAX_VISIBLE_ALERTS);
+      }
+      return updated;
+    });
+  };
+
+  const getKindLabel = (kind: string): string => {
+    switch (kind) {
+      case 'effect': return 'Effect';
+      case 'qa': return 'Q&A';
+      case 'donation': return 'Donation';
+      case 'membership': return 'Membership';
+      default: return 'Support';
+    }
+  };
+
+  const getKindColor = (kind: string): string => {
+    switch (kind) {
+      case 'effect': return '#10b981';
+      case 'qa': return '#3b82f6';
+      case 'donation': return '#f59e0b';
+      case 'membership': return '#6366f1';
+      default: return '#6b7280';
+    }
   };
 
   return (
@@ -305,6 +375,68 @@ export function OverlayLayer({ slug, position = 'absolute', zIndex = 10 }: Overl
         </div>
       )}
 
+      {/* Support alert toasts (top-right corner) */}
+      <div
+        style={{
+          position: 'absolute',
+          top: '20px',
+          right: '20px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px',
+          maxWidth: '320px',
+        }}
+      >
+        {supportAlerts.map((alert) => (
+          <div
+            key={alert.id}
+            style={{
+              background: 'rgba(17, 24, 39, 0.95)',
+              color: '#fff',
+              padding: '12px 16px',
+              borderRadius: '10px',
+              borderLeft: `4px solid ${getKindColor(alert.kind)}`,
+              animation: 'alert-slide-in 0.3s ease-out',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+            }}
+          >
+            <div
+              style={{
+                width: '36px',
+                height: '36px',
+                borderRadius: '50%',
+                background: getKindColor(alert.kind),
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '16px',
+                flexShrink: 0,
+              }}
+            >
+              {alert.kind === 'effect' && '✨'}
+              {alert.kind === 'qa' && '❓'}
+              {alert.kind === 'donation' && '💰'}
+              {alert.kind === 'membership' && '⭐'}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontSize: '13px', fontWeight: 600, marginBottom: '2px' }}>
+                {getKindLabel(alert.kind)}
+              </p>
+              <p style={{ fontSize: '12px', opacity: 0.9, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {alert.displayName || `${alert.fromAddress.slice(0, 6)}...${alert.fromAddress.slice(-4)}`}
+              </p>
+            </div>
+            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+              <p style={{ fontSize: '14px', fontWeight: 700, color: '#10b981' }}>
+                ${formatUsdcAmount(alert.value)}
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+
       <style>{`
         @keyframes flash-fade {
           0% { opacity: 1; }
@@ -325,6 +457,11 @@ export function OverlayLayer({ slug, position = 'absolute', zIndex = 10 }: Overl
         @keyframes donation-pop {
           0% { transform: translateX(-50%) translateY(-20px) scale(0.9); opacity: 0; }
           100% { transform: translateX(-50%) translateY(0) scale(1); opacity: 1; }
+        }
+
+        @keyframes alert-slide-in {
+          0% { transform: translateX(100px); opacity: 0; }
+          100% { transform: translateX(0); opacity: 1; }
         }
       `}</style>
     </div>
