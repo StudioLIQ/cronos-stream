@@ -18,13 +18,13 @@ const DEFAULT_STREAM_EMBED_URL = 'https://www.youtube.com/embed/Ap-UM1O9RBU';
 
 function parseUsdcToBaseUnits(input: string): { ok: true; baseUnits: string } | { ok: false; error: string } {
   let normalized = input.trim();
-  if (!normalized) return { ok: false, error: '후원 금액을 입력해주세요.' };
+  if (!normalized) return { ok: false, error: 'Please enter a donation amount.' };
 
   if (normalized.startsWith('.')) normalized = `0${normalized}`;
   if (normalized.endsWith('.')) normalized = normalized.slice(0, -1);
 
   if (!/^\d+(\.\d{0,6})?$/.test(normalized)) {
-    return { ok: false, error: '금액 형식이 올바르지 않습니다. 예) 0.05' };
+    return { ok: false, error: 'Invalid amount format. Example: 0.05' };
   }
 
   const [wholePart, fractionalPart = ''] = normalized.split('.');
@@ -33,14 +33,14 @@ function parseUsdcToBaseUnits(input: string): { ok: true; baseUnits: string } | 
   const fractional = BigInt(fractionalPadded || '0');
 
   const baseUnits = (whole * 1_000_000n + fractional).toString();
-  if (BigInt(baseUnits) <= 0n) return { ok: false, error: '후원 금액은 0보다 커야 합니다.' };
+  if (BigInt(baseUnits) <= 0n) return { ok: false, error: 'Donation amount must be greater than 0.' };
 
   return { ok: true, baseUnits };
 }
 
 function normalizeYouTubeStreamInput(value: string): { ok: true; embedUrl: string } | { ok: false; error: string } {
   const trimmed = value.trim();
-  if (!trimmed) return { ok: false, error: '링크를 입력해주세요.' };
+  if (!trimmed) return { ok: false, error: 'Please enter a link.' };
 
   // YouTube channel ID (preferred for "currently live" embeds)
   if (/^UC[a-zA-Z0-9_-]{20,}$/.test(trimmed)) {
@@ -59,18 +59,18 @@ function normalizeYouTubeStreamInput(value: string): { ok: true; embedUrl: strin
   try {
     url = new URL(trimmed);
   } catch {
-    return { ok: false, error: '유효한 URL이 아닙니다.' };
+    return { ok: false, error: 'Invalid URL.' };
   }
 
   if (url.protocol !== 'https:') {
-    return { ok: false, error: 'https URL만 지원합니다.' };
+    return { ok: false, error: 'Only https URLs are supported.' };
   }
 
   const host = url.hostname.replace(/^www\./, '');
 
   if (host === 'youtu.be') {
     const videoId = url.pathname.replace(/^\//, '').split('/')[0];
-    if (!videoId) return { ok: false, error: '유효한 youtu.be 링크가 아닙니다.' };
+    if (!videoId) return { ok: false, error: 'Invalid youtu.be URL.' };
     return { ok: true, embedUrl: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}` };
   }
 
@@ -81,19 +81,19 @@ function normalizeYouTubeStreamInput(value: string): { ok: true; embedUrl: strin
 
     if (url.pathname === '/watch') {
       const videoId = url.searchParams.get('v');
-      if (!videoId) return { ok: false, error: 'watch URL에 v= 파라미터가 필요합니다.' };
+      if (!videoId) return { ok: false, error: 'The watch URL must include the v= parameter.' };
       return { ok: true, embedUrl: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}` };
     }
 
     if (url.pathname.startsWith('/live/')) {
       const videoId = url.pathname.split('/')[2];
-      if (!videoId) return { ok: false, error: '유효한 /live 링크가 아닙니다.' };
+      if (!videoId) return { ok: false, error: 'Invalid /live URL.' };
       return { ok: true, embedUrl: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}` };
     }
 
     if (url.pathname.startsWith('/channel/')) {
       const channelId = url.pathname.split('/')[2];
-      if (!channelId) return { ok: false, error: '유효한 /channel 링크가 아닙니다.' };
+      if (!channelId) return { ok: false, error: 'Invalid /channel URL.' };
       return {
         ok: true,
         embedUrl: `https://www.youtube.com/embed/live_stream?channel=${encodeURIComponent(channelId)}`,
@@ -107,7 +107,7 @@ function normalizeYouTubeStreamInput(value: string): { ok: true; embedUrl: strin
     }
   }
 
-  return { ok: false, error: '유튜브 링크(채널/영상)만 지원합니다.' };
+  return { ok: false, error: 'Only YouTube links (channel/video) are supported.' };
 }
 
 function streamOverrideEmbedKey(slug: string): string {
@@ -432,7 +432,7 @@ export default function Viewer() {
 
         <div className="card" style={{ marginTop: '12px' }}>
           <p style={{ color: '#888', fontSize: '14px', lineHeight: 1.4 }}>
-            기본값은 데모 영상입니다. 다른 유튜브 라이브/영상 링크로 바꾸려면 아래에 입력하세요 (이 설정은 <strong>이 브라우저에만</strong> 저장됩니다).
+            This defaults to the demo video. Paste a YouTube live/video link below to change it (saved <strong>only in this browser</strong>).
           </p>
           <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
             <input
@@ -466,7 +466,7 @@ export default function Viewer() {
         <h2>Donate</h2>
         <div className="card" style={{ marginTop: '12px' }}>
           <p style={{ color: '#888', fontSize: '14px', lineHeight: 1.4 }}>
-            유튜브를 보면서 바로 후원할 수 있어요. 금액은 USDC 기준이며, 아래에서 직접 입력하거나 프리셋을 선택하세요.
+            Donate while watching the stream. Amounts are in USDC; choose a preset or enter a custom amount.
           </p>
 
           <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
@@ -578,7 +578,7 @@ export default function Viewer() {
       <section style={{ marginBottom: '32px' }}>
         <h2>Effects</h2>
         <p style={{ marginTop: '8px', color: '#888', fontSize: '14px' }}>
-          효과는 스트리머의 오버레이에서 보여요: <a href={`/o/${slug}`} style={{ color: '#3b82f6' }}>/o/{slug}</a>
+          Effects appear on the streamer overlay: <a href={`/o/${slug}`} style={{ color: '#3b82f6' }}>/o/{slug}</a>
         </p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '12px', marginTop: '12px' }}>
           {actions.map((action) => (
