@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { fetchChannel, fetchActions, triggerAction, donate, submitQA, is402Response } from '../lib/api';
-import type { Channel, Action, PaymentResponse } from '../lib/api';
+import { fetchChannel, fetchActions, triggerAction, donate, submitQA, is402Response, fetchMembershipPlans, fetchMembershipStatus, subscribeMembership } from '../lib/api';
+import type { Channel, Action, PaymentResponse, MembershipPlan, MembershipStatus, MembershipResponse } from '../lib/api';
 import { connectWallet, getSigner, isConnected, switchToCronosTestnet } from '../lib/wallet';
 import { createPaymentHeader, formatUsdcAmount } from '../lib/x402';
 import { TopNav } from '../components/TopNav';
@@ -67,6 +67,13 @@ export default function Viewer() {
   const [qaState, setQaState] = useState<PaymentState>('idle');
   const [qaResult, setQaResult] = useState<PaymentResult | null>(null);
 
+  // Membership state
+  const [membershipPlans, setMembershipPlans] = useState<MembershipPlan[]>([]);
+  const [membershipStatus, setMembershipStatus] = useState<MembershipStatus | null>(null);
+  const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
+  const [membershipState, setMembershipState] = useState<PaymentState>('idle');
+  const [membershipResult, setMembershipResult] = useState<MembershipResponse | null>(null);
+
   useEffect(() => {
     if (!slug) return;
 
@@ -76,10 +83,12 @@ export default function Viewer() {
       return;
     }
 
-    Promise.all([fetchChannel(slug), fetchActions(slug)])
-      .then(([ch, acts]) => {
+    Promise.all([fetchChannel(slug), fetchActions(slug), fetchMembershipPlans(slug)])
+      .then(([ch, acts, plans]) => {
         setChannel(ch);
         setActions(acts);
+        setMembershipPlans(plans);
+        if (plans.length > 0) setSelectedPlan(plans[0].id);
         setLoading(false);
       })
       .catch((err) => {
@@ -87,6 +96,19 @@ export default function Viewer() {
         setLoading(false);
       });
   }, [slug]);
+
+  // Fetch membership status when wallet is connected
+  useEffect(() => {
+    if (!slug || !walletAddress) return;
+
+    fetchMembershipStatus(slug, walletAddress)
+      .then((status) => {
+        setMembershipStatus(status);
+      })
+      .catch(() => {
+        // Ignore errors for membership status
+      });
+  }, [slug, walletAddress]);
 
   const handleConnect = async () => {
     try {
@@ -183,6 +205,51 @@ export default function Viewer() {
     } catch (err) {
       setError((err as Error).message);
       setQaState('error');
+    }
+  };
+
+  const handleSubscribe = async () => {
+    if (!slug || !selectedPlan) return;
+    setMembershipState('needs_payment');
+    setMembershipResult(null);
+
+    try {
+      // First request without payment
+      let result = await subscribeMembership(slug, selectedPlan);
+
+      if (is402Response(result)) {
+        setMembershipState('signing');
+
+        const signer = getSigner();
+        if (!signer) {
+          throw new Error('Wallet not connected');
+        }
+
+        // Create payment header
+        const paymentHeader = await createPaymentHeader(signer, result.paymentRequirements);
+
+        setMembershipState('settling');
+
+        // Retry with payment
+        result = await subscribeMembership(slug, selectedPlan, paymentHeader);
+
+        if (is402Response(result)) {
+          throw new Error('Payment still required after signing');
+        }
+      }
+
+      const membershipResponse = result as MembershipResponse;
+      setMembershipResult(membershipResponse);
+      setMembershipState('done');
+
+      // Refresh membership status
+      if (walletAddress) {
+        const status = await fetchMembershipStatus(slug, walletAddress);
+        setMembershipStatus(status);
+      }
+    } catch (err) {
+      setError((err as Error).message);
+      setMembershipState('error');
     }
   };
 
@@ -419,7 +486,111 @@ export default function Viewer() {
         </div>
 
         <aside className="viewer-side">
-          <section>
+          {/* Membership Section */}
+          {membershipPlans.length > 0 && (
+            <section>
+              <h2>Membership</h2>
+              <div className="card" style={{ marginTop: '12px' }}>
+                {membershipStatus?.active ? (
+                  <div>
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      marginBottom: '12px',
+                    }}>
+                      <span style={{
+                        padding: '4px 8px',
+                        background: '#10b981',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        fontWeight: 'bold',
+                      }}>
+                        MEMBER
+                      </span>
+                      <span style={{ color: '#888', fontSize: '14px' }}>
+                        {membershipStatus.membership?.planName}
+                      </span>
+                    </div>
+                    <p style={{ color: '#888', fontSize: '14px' }}>
+                      Expires: {membershipStatus.membership?.expiresAt ?
+                        new Date(membershipStatus.membership.expiresAt).toLocaleDateString() : 'N/A'}
+                    </p>
+                    <button
+                      onClick={handleSubscribe}
+                      disabled={!isConnected() || membershipState === 'signing' || membershipState === 'settling'}
+                      style={{ marginTop: '12px', background: '#6366f1', color: '#fff', width: '100%' }}
+                    >
+                      {membershipState === 'signing'
+                        ? 'Signing...'
+                        : membershipState === 'settling'
+                        ? 'Settling...'
+                        : 'Renew Membership'}
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <p style={{ color: '#888', fontSize: '14px', marginBottom: '12px' }}>
+                      Join as a member to support this channel!
+                    </p>
+
+                    {membershipPlans.length > 1 && (
+                      <div style={{ marginBottom: '12px' }}>
+                        <label style={{ display: 'block', marginBottom: '4px', color: '#888', fontSize: '14px' }}>
+                          Select Plan
+                        </label>
+                        <select
+                          value={selectedPlan || ''}
+                          onChange={(e) => setSelectedPlan(e.target.value)}
+                          style={{ width: '100%' }}
+                        >
+                          {membershipPlans.map((plan) => (
+                            <option key={plan.id} value={plan.id}>
+                              {plan.name} - ${formatUsdcAmount(plan.priceBaseUnits)} ({plan.durationDays} days)
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {membershipPlans.length === 1 && (
+                      <p style={{ marginBottom: '12px', fontWeight: 500 }}>
+                        {membershipPlans[0].name}: ${formatUsdcAmount(membershipPlans[0].priceBaseUnits)} for {membershipPlans[0].durationDays} days
+                      </p>
+                    )}
+
+                    <button
+                      onClick={handleSubscribe}
+                      disabled={!isConnected() || !selectedPlan || membershipState === 'signing' || membershipState === 'settling'}
+                      style={{ background: '#6366f1', color: '#fff', width: '100%' }}
+                    >
+                      {membershipState === 'signing'
+                        ? 'Signing...'
+                        : membershipState === 'settling'
+                        ? 'Settling...'
+                        : 'Subscribe'}
+                    </button>
+                  </div>
+                )}
+
+                {membershipState === 'done' && membershipResult && (
+                  <p style={{ marginTop: '12px', color: '#10b981' }}>
+                    Success! TX:{' '}
+                    <a
+                      href={`https://explorer.cronos.org/testnet/tx/${membershipResult.payment.txHash}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: '#3b82f6' }}
+                    >
+                      {membershipResult.payment.txHash.slice(0, 10)}...
+                    </a>
+                  </p>
+                )}
+              </div>
+            </section>
+          )}
+
+          <section style={{ marginTop: membershipPlans.length > 0 ? '24px' : 0 }}>
             <h2>Donate</h2>
             <div className="card" style={{ marginTop: '12px' }}>
               <p style={{ color: '#888', fontSize: '14px', lineHeight: 1.4 }}>

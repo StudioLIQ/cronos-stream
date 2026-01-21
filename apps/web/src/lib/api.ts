@@ -191,3 +191,82 @@ export function is402Response(res: unknown): res is Error402Response {
     'paymentRequirements' in res
   );
 }
+
+// Membership types and functions
+
+export interface MembershipPlan {
+  id: string;
+  name: string;
+  priceBaseUnits: string;
+  durationDays: number;
+}
+
+export interface MembershipStatus {
+  active: boolean;
+  membership: {
+    planId: string;
+    planName: string;
+    expiresAt: string;
+    revoked: boolean;
+  } | null;
+}
+
+export interface MembershipResponse {
+  ok: true;
+  membership: {
+    planId: string;
+    expiresAt: string;
+  };
+  payment: {
+    paymentId: string;
+    txHash: string;
+    from: string;
+    to: string;
+    value: string;
+    blockNumber?: number;
+  };
+  cached?: boolean;
+}
+
+export async function fetchMembershipPlans(slug: string): Promise<MembershipPlan[]> {
+  const res = await fetch(`${API_BASE}/channels/${slug}/membership-plans`);
+  if (!res.ok) throw new Error('Failed to fetch membership plans');
+  return res.json();
+}
+
+export async function fetchMembershipStatus(slug: string, address: string): Promise<MembershipStatus> {
+  const res = await fetch(`${API_BASE}/channels/${slug}/memberships/me?address=${address.toLowerCase()}`);
+  if (!res.ok) throw new Error('Failed to fetch membership status');
+  return res.json();
+}
+
+export async function subscribeMembership(
+  slug: string,
+  planId: string,
+  paymentHeader?: string
+): Promise<MembershipResponse | Error402Response> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (paymentHeader) {
+    headers['X-PAYMENT'] = paymentHeader;
+  }
+
+  const res = await fetch(`${API_BASE}/channels/${slug}/memberships`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ planId }),
+  });
+
+  const data = await res.json();
+
+  if (res.status === 402) {
+    return data as Error402Response;
+  }
+
+  if (!res.ok) {
+    throw new Error(data.error || 'Failed to subscribe');
+  }
+
+  return data as MembershipResponse;
+}
