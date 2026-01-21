@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useLocation, useParams } from 'react-router-dom';
 import { fetchChannel, fetchActions, triggerAction, donate, submitQA, is402Response } from '../lib/api';
 import type { Channel, Action, PaymentResponse } from '../lib/api';
 import { connectWallet, getSigner, isConnected, switchToCronosTestnet } from '../lib/wallet';
 import { createPaymentHeader, formatUsdcAmount } from '../lib/x402';
+import { TopNav } from '../components/TopNav';
 
 type PaymentState = 'idle' | 'needs_payment' | 'signing' | 'settling' | 'done' | 'error';
 
@@ -120,6 +121,7 @@ function streamOverrideInputKey(slug: string): string {
 
 export default function Viewer() {
   const { slug } = useParams<{ slug: string }>();
+  const location = useLocation();
   const [channel, setChannel] = useState<Channel | null>(null);
   const [actions, setActions] = useState<Action[]>([]);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
@@ -174,6 +176,25 @@ export default function Viewer() {
     setStreamInput(storedInput || '');
     setStreamInputError(null);
   }, [slug]);
+
+  useEffect(() => {
+    if (!slug) return;
+    const params = new URLSearchParams(location.search);
+    const streamParam = params.get('stream');
+    if (!streamParam) return;
+
+    setStreamInput(streamParam);
+    const normalized = normalizeYouTubeStreamInput(streamParam);
+    if (!normalized.ok) {
+      setStreamInputError(normalized.error);
+      return;
+    }
+
+    localStorage.setItem(streamOverrideEmbedKey(slug), normalized.embedUrl);
+    localStorage.setItem(streamOverrideInputKey(slug), streamParam);
+    setStreamOverrideEmbedUrl(normalized.embedUrl);
+    setStreamInputError(null);
+  }, [slug, location.search]);
 
   const handleConnect = async () => {
     try {
@@ -381,7 +402,9 @@ export default function Viewer() {
   }
 
   return (
-    <div className="container">
+    <div>
+      <TopNav />
+      <div className="container">
       <header style={{ marginBottom: '24px' }}>
         <h1>{channel.displayName}</h1>
         <p style={{ color: '#888', fontSize: '14px' }}>Network: {channel.network}</p>
@@ -409,296 +432,303 @@ export default function Viewer() {
         </div>
       )}
 
-      <section style={{ marginBottom: '32px' }}>
-        <h2>Live</h2>
-        <div className="card" style={{ padding: 0, overflow: 'hidden', marginTop: '12px' }}>
-          <div style={{ position: 'relative', paddingTop: '56.25%' }}>
-            <iframe
-              src={activeStreamEmbedUrl}
-              title={`${channel.displayName} livestream`}
-              allow="autoplay; encrypted-media; picture-in-picture"
-              allowFullScreen
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                height: '100%',
-                border: 0,
-              }}
-            />
-          </div>
-        </div>
-
-        <div className="card" style={{ marginTop: '12px' }}>
-          <p style={{ color: '#888', fontSize: '14px', lineHeight: 1.4 }}>
-            This defaults to the demo video. Paste a YouTube live/video link below to change it (saved <strong>only in this browser</strong>).
-          </p>
-          <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
-            <input
-              type="text"
-              value={streamInput}
-              onChange={(e) => setStreamInput(e.target.value)}
-              placeholder={DEFAULT_STREAM_INPUT}
-              style={{ width: '100%' }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleApplyStream();
-              }}
-            />
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button onClick={handleApplyStream} style={{ background: '#3b82f6', color: '#fff' }}>
-                Apply
-              </button>
-              <button onClick={handleResetStream} style={{ background: '#1a1a1a', color: '#fff', border: '1px solid #333' }}>
-                Reset
-              </button>
+      <div className="viewer-grid">
+        <div className="viewer-main">
+          <section>
+            <h2>Live</h2>
+            <div className="card" style={{ padding: 0, overflow: 'hidden', marginTop: '12px' }}>
+              <div style={{ position: 'relative', paddingTop: '56.25%' }}>
+                <iframe
+                  src={activeStreamEmbedUrl}
+                  title={`${channel.displayName} livestream`}
+                  allow="autoplay; encrypted-media; picture-in-picture"
+                  allowFullScreen
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: '100%',
+                    border: 0,
+                  }}
+                />
+              </div>
             </div>
-          </div>
-          {streamInputError && (
-            <p style={{ marginTop: '10px', color: '#ef4444', fontSize: '13px' }}>
-              {streamInputError}
-            </p>
-          )}
-        </div>
-      </section>
 
-      <section style={{ marginBottom: '32px' }}>
-        <h2>Donate</h2>
-        <div className="card" style={{ marginTop: '12px' }}>
-          <p style={{ color: '#888', fontSize: '14px', lineHeight: 1.4 }}>
-            Donate while watching the stream. Amounts are in USDC; choose a preset or enter a custom amount.
-          </p>
-
-          <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
-            {[
-              { label: '$0.05', value: '0.05' },
-              { label: '$0.25', value: '0.25' },
-              { label: '$1.00', value: '1' },
-              { label: '$5.00', value: '5' },
-            ].map((preset) => (
-              <button
-                key={preset.value}
-                onClick={() => {
-                  setDonationAmount(preset.value);
-                  setDonationAmountError(null);
-                }}
-                style={{
-                  background: donationAmount === preset.value ? '#3b82f6' : '#1a1a1a',
-                  color: '#fff',
-                  border: '1px solid #333',
-                }}
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
-
-          <div style={{ marginTop: '12px' }}>
-            <label style={{ display: 'block', marginBottom: '4px', color: '#888', fontSize: '14px' }}>
-              Amount (USDC)
-            </label>
-            <input
-              type="text"
-              value={donationAmount}
-              onChange={(e) => setDonationAmount(e.target.value)}
-              placeholder="0.05"
-              style={{ width: '100%' }}
-            />
-            {donationAmountError && (
-              <p style={{ marginTop: '8px', color: '#ef4444', fontSize: '13px' }}>
-                {donationAmountError}
-              </p>
-            )}
-          </div>
-
-          <div style={{ marginTop: '12px' }}>
-            <label style={{ display: 'block', marginBottom: '4px', color: '#888', fontSize: '14px' }}>
-              Display Name (optional)
-            </label>
-            <input
-              type="text"
-              value={donationDisplayName}
-              onChange={(e) => setDonationDisplayName(e.target.value)}
-              placeholder="Anonymous"
-              style={{ width: '100%' }}
-            />
-          </div>
-
-          <div style={{ marginTop: '12px' }}>
-            <label style={{ display: 'block', marginBottom: '4px', color: '#888', fontSize: '14px' }}>
-              Message (optional)
-            </label>
-            <textarea
-              value={donationMessage}
-              onChange={(e) => setDonationMessage(e.target.value)}
-              placeholder="Say something..."
-              rows={2}
-              style={{ width: '100%', resize: 'vertical' }}
-            />
-          </div>
-
-          <button
-            onClick={handleDonate}
-            disabled={!isConnected() || donationState === 'signing' || donationState === 'settling'}
-            style={{ marginTop: '12px', background: '#f59e0b', color: '#000', width: '100%' }}
-          >
-            {donationState === 'signing'
-              ? 'Signing...'
-              : donationState === 'settling'
-              ? 'Settling...'
-              : `Donate $${donationAmount}`}
-          </button>
-
-          {donationState !== 'idle' && (
             <div className="card" style={{ marginTop: '12px' }}>
-              <p>
-                {donationState === 'needs_payment' && 'Requesting payment...'}
-                {donationState === 'signing' && 'Please sign the transaction...'}
-                {donationState === 'settling' && 'Settling payment...'}
-                {donationState === 'done' && donationResult && (
-                  <>
-                    Thanks! TX:{' '}
-                    <a
-                      href={`https://explorer.cronos.org/testnet/tx/${donationResult.txHash}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{ color: '#3b82f6' }}
-                    >
-                      {donationResult.txHash.slice(0, 10)}...
-                    </a>
-                  </>
-                )}
-                {donationState === 'error' && 'Error occurred'}
+              <p style={{ color: '#888', fontSize: '14px', lineHeight: 1.4 }}>
+                This defaults to the demo video. Paste a YouTube live/video link below to change it (saved <strong>only in this browser</strong>).
               </p>
+              <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
+                <input
+                  type="text"
+                  value={streamInput}
+                  onChange={(e) => setStreamInput(e.target.value)}
+                  placeholder={DEFAULT_STREAM_INPUT}
+                  style={{ width: '100%' }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleApplyStream();
+                  }}
+                />
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button onClick={handleApplyStream} style={{ background: '#3b82f6', color: '#fff' }}>
+                    Apply
+                  </button>
+                  <button onClick={handleResetStream} style={{ background: '#1a1a1a', color: '#fff', border: '1px solid #333' }}>
+                    Reset
+                  </button>
+                </div>
+              </div>
+              {streamInputError && (
+                <p style={{ marginTop: '10px', color: '#ef4444', fontSize: '13px' }}>
+                  {streamInputError}
+                </p>
+              )}
             </div>
-          )}
-        </div>
-      </section>
+          </section>
 
-      <section style={{ marginBottom: '32px' }}>
-        <h2>Effects</h2>
-        <p style={{ marginTop: '8px', color: '#888', fontSize: '14px' }}>
-          Effects appear on the streamer overlay: <a href={`/o/${slug}`} style={{ color: '#3b82f6' }}>/o/{slug}</a>
-        </p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '12px', marginTop: '12px' }}>
-          {actions.map((action) => (
-            <button
-              key={action.actionKey}
-              onClick={() => handleTriggerAction(action.actionKey)}
-              disabled={!isConnected() || paymentState === 'signing' || paymentState === 'settling'}
-              style={{
-                padding: '16px',
-                background: activeAction === action.actionKey && paymentState !== 'idle' && paymentState !== 'done' ? '#f59e0b' : '#1a1a1a',
-                color: '#fff',
-                border: '1px solid #333',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: '8px',
-              }}
-            >
-              <span style={{ fontSize: '24px' }}>
-                {action.type === 'sticker' ? '🖼️' : action.type === 'sound' ? '🔊' : '⚡'}
-              </span>
-              <span>{action.actionKey}</span>
-              <span style={{ fontSize: '12px', color: '#888' }}>
-                ${formatUsdcAmount(action.priceBaseUnits)} USDC
-              </span>
-            </button>
-          ))}
+          <section style={{ marginTop: '24px' }}>
+            <h2>Effects</h2>
+            <p style={{ marginTop: '8px', color: '#888', fontSize: '14px' }}>
+              Effects appear on the streamer overlay: <a href={`/o/${slug}`} style={{ color: '#3b82f6' }}>/o/{slug}</a>
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '12px', marginTop: '12px' }}>
+              {actions.map((action) => (
+                <button
+                  key={action.actionKey}
+                  onClick={() => handleTriggerAction(action.actionKey)}
+                  disabled={!isConnected() || paymentState === 'signing' || paymentState === 'settling'}
+                  style={{
+                    padding: '16px',
+                    background: activeAction === action.actionKey && paymentState !== 'idle' && paymentState !== 'done' ? '#f59e0b' : '#1a1a1a',
+                    color: '#fff',
+                    border: '1px solid #333',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '8px',
+                  }}
+                >
+                  <span style={{ fontSize: '24px' }}>
+                    {action.type === 'sticker' ? '🖼️' : action.type === 'sound' ? '🔊' : '⚡'}
+                  </span>
+                  <span>{action.actionKey}</span>
+                  <span style={{ fontSize: '12px', color: '#888' }}>
+                    ${formatUsdcAmount(action.priceBaseUnits)} USDC
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {paymentState !== 'idle' && (
+              <div className="card" style={{ marginTop: '16px' }}>
+                <p>
+                  {paymentState === 'needs_payment' && 'Requesting payment...'}
+                  {paymentState === 'signing' && 'Please sign the transaction...'}
+                  {paymentState === 'settling' && 'Settling payment...'}
+                  {paymentState === 'done' && lastResult && (
+                    <>
+                      Success! TX:{' '}
+                      <a
+                        href={`https://explorer.cronos.org/testnet/tx/${lastResult.txHash}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: '#3b82f6' }}
+                      >
+                        {lastResult.txHash.slice(0, 10)}...
+                      </a>
+                    </>
+                  )}
+                  {paymentState === 'error' && 'Error occurred'}
+                </p>
+              </div>
+            )}
+          </section>
         </div>
 
-        {paymentState !== 'idle' && (
-          <div className="card" style={{ marginTop: '16px' }}>
-            <p>
-              {paymentState === 'needs_payment' && 'Requesting payment...'}
-              {paymentState === 'signing' && 'Please sign the transaction...'}
-              {paymentState === 'settling' && 'Settling payment...'}
-              {paymentState === 'done' && lastResult && (
-                <>
-                  Success! TX:{' '}
+        <aside className="viewer-side">
+          <section>
+            <h2>Donate</h2>
+            <div className="card" style={{ marginTop: '12px' }}>
+              <p style={{ color: '#888', fontSize: '14px', lineHeight: 1.4 }}>
+                Donate while watching the stream. Amounts are in USDC; choose a preset or enter a custom amount.
+              </p>
+
+              <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
+                {[
+                  { label: '$0.05', value: '0.05' },
+                  { label: '$0.25', value: '0.25' },
+                  { label: '$1.00', value: '1' },
+                  { label: '$5.00', value: '5' },
+                ].map((preset) => (
+                  <button
+                    key={preset.value}
+                    onClick={() => {
+                      setDonationAmount(preset.value);
+                      setDonationAmountError(null);
+                    }}
+                    style={{
+                      background: donationAmount === preset.value ? '#3b82f6' : '#1a1a1a',
+                      color: '#fff',
+                      border: '1px solid #333',
+                    }}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ marginTop: '12px' }}>
+                <label style={{ display: 'block', marginBottom: '4px', color: '#888', fontSize: '14px' }}>
+                  Amount (USDC)
+                </label>
+                <input
+                  type="text"
+                  value={donationAmount}
+                  onChange={(e) => setDonationAmount(e.target.value)}
+                  placeholder="0.05"
+                  style={{ width: '100%' }}
+                />
+                {donationAmountError && (
+                  <p style={{ marginTop: '8px', color: '#ef4444', fontSize: '13px' }}>
+                    {donationAmountError}
+                  </p>
+                )}
+              </div>
+
+              <div style={{ marginTop: '12px' }}>
+                <label style={{ display: 'block', marginBottom: '4px', color: '#888', fontSize: '14px' }}>
+                  Display Name (optional)
+                </label>
+                <input
+                  type="text"
+                  value={donationDisplayName}
+                  onChange={(e) => setDonationDisplayName(e.target.value)}
+                  placeholder="Anonymous"
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div style={{ marginTop: '12px' }}>
+                <label style={{ display: 'block', marginBottom: '4px', color: '#888', fontSize: '14px' }}>
+                  Message (optional)
+                </label>
+                <textarea
+                  value={donationMessage}
+                  onChange={(e) => setDonationMessage(e.target.value)}
+                  placeholder="Say something..."
+                  rows={2}
+                  style={{ width: '100%', resize: 'vertical' }}
+                />
+              </div>
+
+              <button
+                onClick={handleDonate}
+                disabled={!isConnected() || donationState === 'signing' || donationState === 'settling'}
+                style={{ marginTop: '12px', background: '#f59e0b', color: '#000', width: '100%' }}
+              >
+                {donationState === 'signing'
+                  ? 'Signing...'
+                  : donationState === 'settling'
+                  ? 'Settling...'
+                  : `Donate $${donationAmount}`}
+              </button>
+
+              {donationState !== 'idle' && (
+                <div className="card" style={{ marginTop: '12px' }}>
+                  <p>
+                    {donationState === 'needs_payment' && 'Requesting payment...'}
+                    {donationState === 'signing' && 'Please sign the transaction...'}
+                    {donationState === 'settling' && 'Settling payment...'}
+                    {donationState === 'done' && donationResult && (
+                      <>
+                        Thanks! TX:{' '}
+                        <a
+                          href={`https://explorer.cronos.org/testnet/tx/${donationResult.txHash}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ color: '#3b82f6' }}
+                        >
+                          {donationResult.txHash.slice(0, 10)}...
+                        </a>
+                      </>
+                    )}
+                    {donationState === 'error' && 'Error occurred'}
+                  </p>
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section style={{ marginTop: '24px' }}>
+            <h2>Ask a Question</h2>
+            <div className="card" style={{ marginTop: '12px' }}>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', marginBottom: '4px', color: '#888', fontSize: '14px' }}>
+                  Display Name (optional)
+                </label>
+                <input
+                  type="text"
+                  value={qaDisplayName}
+                  onChange={(e) => setQaDisplayName(e.target.value)}
+                  placeholder="Anonymous"
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', marginBottom: '4px', color: '#888', fontSize: '14px' }}>
+                  Your Question
+                </label>
+                <textarea
+                  value={qaMessage}
+                  onChange={(e) => setQaMessage(e.target.value)}
+                  placeholder="Type your question..."
+                  rows={3}
+                  style={{ width: '100%', resize: 'vertical' }}
+                />
+              </div>
+
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', marginBottom: '4px', color: '#888', fontSize: '14px' }}>
+                  Tier
+                </label>
+                <select
+                  value={qaTier}
+                  onChange={(e) => setQaTier(e.target.value as 'normal' | 'priority')}
+                  style={{ width: '100%' }}
+                >
+                  <option value="normal">Normal - $0.25 USDC</option>
+                  <option value="priority">Priority - $0.50 USDC</option>
+                </select>
+              </div>
+
+              <button
+                onClick={handleSubmitQA}
+                disabled={!isConnected() || !qaMessage.trim() || qaState === 'signing' || qaState === 'settling'}
+                style={{ background: '#10b981', color: '#fff', width: '100%' }}
+              >
+                {qaState === 'signing' ? 'Signing...' : qaState === 'settling' ? 'Settling...' : 'Submit Question'}
+              </button>
+
+              {qaState === 'done' && qaResult && (
+                <p style={{ marginTop: '12px', color: '#10b981' }}>
+                  Question submitted! TX:{' '}
                   <a
-                    href={`https://explorer.cronos.org/testnet/tx/${lastResult.txHash}`}
+                    href={`https://explorer.cronos.org/testnet/tx/${qaResult.txHash}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     style={{ color: '#3b82f6' }}
                   >
-                    {lastResult.txHash.slice(0, 10)}...
+                    {qaResult.txHash.slice(0, 10)}...
                   </a>
-                </>
+                </p>
               )}
-              {paymentState === 'error' && 'Error occurred'}
-            </p>
-          </div>
-        )}
-      </section>
-
-      <section>
-        <h2>Ask a Question</h2>
-        <div className="card" style={{ marginTop: '12px' }}>
-          <div style={{ marginBottom: '12px' }}>
-            <label style={{ display: 'block', marginBottom: '4px', color: '#888', fontSize: '14px' }}>
-              Display Name (optional)
-            </label>
-            <input
-              type="text"
-              value={qaDisplayName}
-              onChange={(e) => setQaDisplayName(e.target.value)}
-              placeholder="Anonymous"
-              style={{ width: '100%' }}
-            />
-          </div>
-
-          <div style={{ marginBottom: '12px' }}>
-            <label style={{ display: 'block', marginBottom: '4px', color: '#888', fontSize: '14px' }}>
-              Your Question
-            </label>
-            <textarea
-              value={qaMessage}
-              onChange={(e) => setQaMessage(e.target.value)}
-              placeholder="Type your question..."
-              rows={3}
-              style={{ width: '100%', resize: 'vertical' }}
-            />
-          </div>
-
-          <div style={{ marginBottom: '16px' }}>
-            <label style={{ display: 'block', marginBottom: '4px', color: '#888', fontSize: '14px' }}>
-              Tier
-            </label>
-            <select
-              value={qaTier}
-              onChange={(e) => setQaTier(e.target.value as 'normal' | 'priority')}
-              style={{ width: '100%' }}
-            >
-              <option value="normal">Normal - $0.25 USDC</option>
-              <option value="priority">Priority - $0.50 USDC</option>
-            </select>
-          </div>
-
-          <button
-            onClick={handleSubmitQA}
-            disabled={!isConnected() || !qaMessage.trim() || qaState === 'signing' || qaState === 'settling'}
-            style={{ background: '#10b981', color: '#fff', width: '100%' }}
-          >
-            {qaState === 'signing' ? 'Signing...' : qaState === 'settling' ? 'Settling...' : 'Submit Question'}
-          </button>
-
-          {qaState === 'done' && qaResult && (
-            <p style={{ marginTop: '12px', color: '#10b981' }}>
-              Question submitted! TX:{' '}
-              <a
-                href={`https://explorer.cronos.org/testnet/tx/${qaResult.txHash}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ color: '#3b82f6' }}
-              >
-                {qaResult.txHash.slice(0, 10)}...
-              </a>
-            </p>
-          )}
-        </div>
-      </section>
+            </div>
+          </section>
+        </aside>
+      </div>
+      </div>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import Home from './routes/Home';
 import Viewer from './routes/Viewer';
 import Overlay from './routes/Overlay';
 import Dashboard from './routes/Dashboard';
@@ -10,10 +11,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <BrowserRouter>
       <Routes>
+        <Route path="/" element={<Home />} />
         <Route path="/v/:slug" element={<Viewer />} />
         <Route path="/o/:slug" element={<Overlay />} />
         <Route path="/d/:slug" element={<Dashboard />} />
-        <Route path="/" element={<Navigate to="/v/demo" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   </React.StrictMode>
