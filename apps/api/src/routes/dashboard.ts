@@ -162,6 +162,19 @@ interface PaymentRow {
   createdAt: string;
 }
 
+interface MembershipRow {
+  id: string;
+  channelId: string;
+  fromAddress: string;
+  planId: string;
+  expiresAt: string;
+  lastPaymentId: string | null;
+  revoked: number;
+  createdAt: string;
+  updatedAt: string;
+  planName?: string;
+}
+
 // PATCH /api/channels/:slug - Update channel settings (dashboard auth)
 router.patch('/channels/:slug', async (req, res, next) => {
   try {
@@ -519,6 +532,114 @@ router.get('/channels/:slug/leaderboard', async (req, res, next) => {
       period,
       items: result,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/channels/:slug/memberships - List members (dashboard auth)
+router.get('/channels/:slug/memberships', async (req, res, next) => {
+  try {
+    const { slug } = req.params;
+    const search = (req.query.search as string)?.toLowerCase();
+    const status = req.query.status as string | undefined; // 'active' | 'expired' | 'revoked' | 'all'
+
+    const channel = await getChannelBySlug(slug);
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
+    // Build query
+    const conditions: string[] = ['m.channelId = ?'];
+    const params: (string | number)[] = [channel.id];
+
+    if (search) {
+      conditions.push('m.fromAddress LIKE ?');
+      params.push(`%${search}%`);
+    }
+
+    const now = nowUtcMysqlDatetime();
+    if (status === 'active') {
+      conditions.push('m.revoked = 0 AND m.expiresAt > ?');
+      params.push(now);
+    } else if (status === 'expired') {
+      conditions.push('m.revoked = 0 AND m.expiresAt <= ?');
+      params.push(now);
+    } else if (status === 'revoked') {
+      conditions.push('m.revoked = 1');
+    }
+    // 'all' or undefined = no filter
+
+    const sql = `
+      SELECT m.*, p.name as planName
+      FROM memberships m
+      JOIN membership_plans p ON m.planId = p.id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY m.expiresAt DESC
+      LIMIT 100
+    `;
+
+    const rows = await queryAll<MembershipRow>(sql, params);
+
+    const nowDate = new Date();
+    const result = rows.map((row) => {
+      const expiresAt = new Date(row.expiresAt);
+      const isActive = !row.revoked && expiresAt > nowDate;
+
+      return {
+        id: row.id,
+        fromAddress: row.fromAddress,
+        planId: row.planId,
+        planName: row.planName,
+        expiresAt: row.expiresAt,
+        revoked: row.revoked === 1,
+        active: isActive,
+        createdAt: row.createdAt,
+      };
+    });
+
+    res.json({ items: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/channels/:slug/memberships/:address/revoke - Revoke membership (dashboard auth)
+router.post('/channels/:slug/memberships/:address/revoke', async (req, res, next) => {
+  try {
+    const { slug, address } = req.params;
+    const normalizedAddress = address.toLowerCase();
+
+    const channel = await getChannelBySlug(slug);
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
+    const membership = await queryOne<MembershipRow>(
+      'SELECT * FROM memberships WHERE channelId = ? AND fromAddress = ?',
+      [channel.id, normalizedAddress]
+    );
+
+    if (!membership) {
+      res.status(404).json({ error: 'Membership not found' });
+      return;
+    }
+
+    if (membership.revoked) {
+      res.json({ ok: true, message: 'Already revoked' });
+      return;
+    }
+
+    await execute(
+      'UPDATE memberships SET revoked = 1, updatedAt = NOW() WHERE id = ?',
+      [membership.id]
+    );
+
+    logger.info('Membership revoked', { channelId: channel.id, address: normalizedAddress });
+
+    res.json({ ok: true });
   } catch (err) {
     next(err);
   }

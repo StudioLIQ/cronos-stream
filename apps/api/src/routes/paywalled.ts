@@ -550,4 +550,218 @@ router.post('/channels/:slug/donate', async (req: Request, res: Response, next: 
   }
 });
 
+interface MembershipPlanRow {
+  id: string;
+  channelId: string;
+  name: string;
+  priceBaseUnits: string;
+  durationDays: number;
+  enabled: number;
+}
+
+interface MembershipRow {
+  id: string;
+  channelId: string;
+  fromAddress: string;
+  planId: string;
+  expiresAt: string;
+  lastPaymentId: string | null;
+  revoked: number;
+}
+
+// POST /api/channels/:slug/memberships - Subscribe to membership (paywalled)
+router.post('/channels/:slug/memberships', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { slug } = req.params;
+    const { planId } = req.body;
+
+    if (!planId || typeof planId !== 'string') {
+      res.status(400).json({ error: 'Missing or invalid planId' });
+      return;
+    }
+
+    // Get channel
+    const channel = await getChannelBySlug(slug);
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
+    // Get membership plan
+    const plan = await queryOne<MembershipPlanRow>(
+      'SELECT * FROM membership_plans WHERE id = ? AND channelId = ? AND enabled = 1',
+      [planId, channel.id]
+    );
+
+    if (!plan) {
+      res.status(404).json({ error: 'Membership plan not found' });
+      return;
+    }
+
+    // Check for payment header
+    const paymentHeaderBase64 = getPaymentHeader(req);
+
+    if (!paymentHeaderBase64) {
+      const requirements = buildPaymentRequirements({
+        network: channel.network,
+        payTo: channel.payToAddress,
+        amount: plan.priceBaseUnits,
+        description: `Membership: ${plan.name}`,
+      });
+
+      res.status(402).json(build402Response(requirements));
+      return;
+    }
+
+    // Check idempotency
+    const { paymentId, existing } = await checkIdempotency(paymentHeaderBase64, channel.id);
+
+    if (existing && existing.status === 'settled') {
+      // Check if membership already exists for this payment
+      const existingMembership = await queryOne<MembershipRow>(
+        'SELECT * FROM memberships WHERE channelId = ? AND lastPaymentId = ?',
+        [channel.id, paymentId]
+      );
+
+      if (existingMembership) {
+        logger.info('Returning cached membership for duplicate request', { paymentId });
+        res.json({
+          ok: true,
+          cached: true,
+          membership: {
+            planId: existingMembership.planId,
+            expiresAt: existingMembership.expiresAt,
+          },
+          payment: {
+            paymentId,
+            txHash: existing.txHash,
+            from: existing.fromAddress,
+            to: existing.toAddress,
+            value: existing.value,
+          },
+        });
+        return;
+      }
+    }
+
+    // Parse payment header
+    let paymentHeader;
+    try {
+      paymentHeader = parsePaymentHeader(paymentHeaderBase64);
+    } catch {
+      res.status(400).json({ error: 'Invalid payment header format' });
+      return;
+    }
+
+    // Build payment requirements for verification
+    const requirements = buildPaymentRequirements({
+      network: channel.network,
+      payTo: channel.payToAddress,
+      amount: plan.priceBaseUnits,
+      description: `Membership: ${plan.name}`,
+    });
+
+    // Verify payment
+    const verifyResult = await verifyPayment({
+      paymentHeaderBase64,
+      paymentRequirements: requirements,
+    });
+
+    if (!verifyResult.isValid) {
+      logger.warn('Membership payment verification failed', { paymentId, reason: verifyResult.invalidReason });
+      res.status(400).json({ error: 'Payment verification failed', reason: verifyResult.invalidReason });
+      return;
+    }
+
+    const fromAddress = paymentHeader.payload.from.toLowerCase();
+
+    // Create payment record (if new)
+    if (!existing) {
+      await createVerifiedPayment({
+        channelId: channel.id,
+        paymentId,
+        paymentHeader,
+        context: { kind: 'membership', membershipPlanId: planId },
+      });
+    } else if (!existing.kind) {
+      await updatePaymentContext(paymentId, { kind: 'membership', membershipPlanId: planId });
+    }
+
+    // Settle payment
+    const settleResult = await settlePayment({
+      paymentHeaderBase64,
+      paymentRequirements: requirements,
+    });
+
+    if (!isSettleSuccess(settleResult)) {
+      await markPaymentFailed(paymentId, settleResult.error);
+      res.status(400).json({ error: 'Settlement failed', reason: settleResult.error });
+      return;
+    }
+
+    // Mark as settled
+    await markPaymentSettled(paymentId, settleResult);
+
+    // Upsert membership - extend expiresAt if already exists
+    const existingMembership = await queryOne<MembershipRow>(
+      'SELECT * FROM memberships WHERE channelId = ? AND fromAddress = ?',
+      [channel.id, fromAddress]
+    );
+
+    let expiresAt: Date;
+    const now = new Date();
+    const durationMs = plan.durationDays * 24 * 60 * 60 * 1000;
+
+    if (existingMembership && !existingMembership.revoked) {
+      // Extend from current expiresAt if still active
+      const currentExpires = new Date(existingMembership.expiresAt);
+      const baseDate = currentExpires > now ? currentExpires : now;
+      expiresAt = new Date(baseDate.getTime() + durationMs);
+
+      await execute(
+        `UPDATE memberships SET planId = ?, expiresAt = ?, lastPaymentId = ?, revoked = 0, updatedAt = NOW()
+         WHERE id = ?`,
+        [planId, expiresAt.toISOString().slice(0, 19).replace('T', ' '), paymentId, existingMembership.id]
+      );
+    } else if (existingMembership) {
+      // Was revoked, reactivate
+      expiresAt = new Date(now.getTime() + durationMs);
+      await execute(
+        `UPDATE memberships SET planId = ?, expiresAt = ?, lastPaymentId = ?, revoked = 0, updatedAt = NOW()
+         WHERE id = ?`,
+        [planId, expiresAt.toISOString().slice(0, 19).replace('T', ' '), paymentId, existingMembership.id]
+      );
+    } else {
+      // Create new membership
+      expiresAt = new Date(now.getTime() + durationMs);
+      const membershipId = uuid();
+      await execute(
+        `INSERT INTO memberships (id, channelId, fromAddress, planId, expiresAt, lastPaymentId)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [membershipId, channel.id, fromAddress, planId, expiresAt.toISOString().slice(0, 19).replace('T', ' '), paymentId]
+      );
+    }
+
+    logger.info('Membership created/renewed', { paymentId, fromAddress, planId, expiresAt: expiresAt.toISOString() });
+
+    res.json({
+      ok: true,
+      membership: {
+        planId,
+        expiresAt: expiresAt.toISOString(),
+      },
+      payment: {
+        paymentId,
+        txHash: settleResult.txHash,
+        from: settleResult.from,
+        to: settleResult.to,
+        value: settleResult.value,
+        blockNumber: settleResult.blockNumber,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

@@ -46,6 +46,29 @@ interface PaymentRow {
   createdAt: string;
 }
 
+interface MembershipPlanRow {
+  id: string;
+  channelId: string;
+  name: string;
+  priceBaseUnits: string;
+  durationDays: number;
+  enabled: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface MembershipRow {
+  id: string;
+  channelId: string;
+  fromAddress: string;
+  planId: string;
+  expiresAt: string;
+  lastPaymentId: string | null;
+  revoked: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // GET /api/channels/:slug - Get channel info
 router.get('/channels/:slug', async (req, res, next) => {
   try {
@@ -98,6 +121,86 @@ router.get('/channels/:slug/actions', async (req, res, next) => {
         payload: JSON.parse(a.payloadJson),
       }))
     );
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/channels/:slug/membership-plans - Get enabled membership plans
+router.get('/channels/:slug/membership-plans', async (req, res, next) => {
+  try {
+    const { slug } = req.params;
+
+    const channel = await queryOne<{ id: string }>('SELECT id FROM channels WHERE slug = ?', [slug]);
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
+    const plans = await queryAll<MembershipPlanRow>(
+      'SELECT id, name, priceBaseUnits, durationDays FROM membership_plans WHERE channelId = ? AND enabled = 1',
+      [channel.id]
+    );
+
+    res.json(
+      plans.map((p) => ({
+        id: p.id,
+        name: p.name,
+        priceBaseUnits: p.priceBaseUnits,
+        durationDays: p.durationDays,
+      }))
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/channels/:slug/memberships/me - Get membership status for a wallet
+router.get('/channels/:slug/memberships/me', async (req, res, next) => {
+  try {
+    const { slug } = req.params;
+    const address = (req.query.address as string)?.toLowerCase();
+
+    if (!address || !/^0x[a-f0-9]{40}$/i.test(address)) {
+      res.status(400).json({ error: 'Missing or invalid address parameter' });
+      return;
+    }
+
+    const channel = await queryOne<{ id: string }>('SELECT id FROM channels WHERE slug = ?', [slug]);
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
+    const membership = await queryOne<MembershipRow & { planName: string }>(
+      `SELECT m.*, p.name as planName
+       FROM memberships m
+       JOIN membership_plans p ON m.planId = p.id
+       WHERE m.channelId = ? AND m.fromAddress = ?`,
+      [channel.id, address]
+    );
+
+    if (!membership) {
+      res.json({
+        active: false,
+        membership: null,
+      });
+      return;
+    }
+
+    const expiresAt = new Date(membership.expiresAt);
+    const now = new Date();
+    const isActive = !membership.revoked && expiresAt > now;
+
+    res.json({
+      active: isActive,
+      membership: {
+        planId: membership.planId,
+        planName: membership.planName,
+        expiresAt: membership.expiresAt,
+        revoked: membership.revoked === 1,
+      },
+    });
   } catch (err) {
     next(err);
   }
