@@ -25,6 +25,13 @@ Stream402 is a platform-agnostic "paid interaction" layer for livestreamers usin
 pnpm install
 ```
 
+## Deployment
+
+See `DEPLOY.md` for the full checklist.
+
+- Web: Vercel (Root Directory: `apps/web`)
+- API: Railway (`apps/api`)
+
 ### Environment Variables
 
 Create `apps/api/.env`:

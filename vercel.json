@@ -1,8 +1,0 @@
-{
-  "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": "https://<railway-domain>/api/$1"
-    }
-  ]
-}

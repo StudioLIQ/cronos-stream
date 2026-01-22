@@ -52,7 +52,7 @@ DB (데이터 유지 필요 시 필수):
 
 ### 1-4. 배포 확인
 
-- API 헬스체크: `https://<railway-domain>/health`
+- API 헬스체크: `<railway-origin>/health`
 - 정상 응답 예시: `{ "status": "ok" }`
 
 ---
@@ -64,33 +64,30 @@ DB (데이터 유지 필요 시 필수):
 ### 2-1. 새 프로젝트 생성
 
 - Vercel에서 **New Project → Import**
-- 루트 디렉토리 선택 방식 중 하나를 택합니다:
-
-**옵션 A (추천)**
-- Root Directory: 레포 루트
-- Build Command: `pnpm --filter @stream402/web build`
-- Output Directory: `apps/web/dist`
-
-**옵션 B**
 - Root Directory: `apps/web`
 - Build Command: `pnpm build`
 - Output Directory: `dist`
 
 ### 2-2. /api 프록시 설정 (Vercel Rewrite)
 
-레포에 `vercel.json`을 추가해 두었습니다. 아래 파일의 `<railway-domain>`만 실제 도메인으로 바꿔주세요.
+웹 라우팅(React Router)과 `/api` 프록시를 위해 `apps/web/vercel.json`을 사용합니다. 아래 파일의 `<railway-origin>`만 실제 도메인으로 바꿔주세요.
 
 ```json
 {
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "https://<railway-domain>/api/$1"
+      "destination": "<railway-origin>/api/$1"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }
 ```
-> SSE(`/api/.../stream/...`)도 이 프록시 경로를 통해 동작합니다.
+> - SSE(`/api/.../stream/...`)도 이 프록시 경로를 통해 동작합니다.  
+> - `/v/:slug`, `/o/:slug`, `/d/:slug` 같은 SPA 라우팅이 404가 나지 않도록 `index.html`로 폴백합니다.
 
 ### 2-3. 배포 확인
 
@@ -119,8 +116,8 @@ DB (데이터 유지 필요 시 필수):
 
 1) Railway에서 배포된 API 도메인을 확인합니다.  
    - 예시: `https://stream402-api.up.railway.app`
-2) 레포 루트의 `vercel.json`을 열고 `<railway-domain>`을 실제 도메인으로 교체합니다.  
-   - 파일: `vercel.json`
+2) `apps/web/vercel.json`을 열고 `<railway-origin>`을 실제 도메인으로 교체합니다.  
+   - 파일: `apps/web/vercel.json`
 3) 변경사항을 커밋/푸시합니다.
 4) Vercel 프로젝트에서 새 배포가 완료되면 아래 URL로 프록시 동작을 확인합니다.  
    - `https://<vercel-domain>/api/channels/demo`

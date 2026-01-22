@@ -9,6 +9,9 @@
     "preview": "vite preview",
     "lint": "tsc --noEmit"
   },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "canvas-confetti": "^1.9.4",
     "ethers": "^6.13.2",
