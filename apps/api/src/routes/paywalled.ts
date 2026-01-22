@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { v4 as uuid } from 'uuid';
-import { queryOne, execute } from '../db/db.js';
+import { queryOne, queryAll, execute } from '../db/db.js';
 import { logger } from '../logger.js';
 import { getChannelBySlug, getActionForChannel } from './public.js';
 import { buildPaymentRequirements, build402Response, validateAmount } from '../x402/paymentRequirements.js';
@@ -87,6 +87,132 @@ async function isWalletBlocked(channelId: string, fromAddress: string): Promise<
     [channelId, fromAddress.toLowerCase()]
   );
   return !!blocked;
+}
+
+interface GoalRow {
+  id: string;
+  channelId: string;
+  type: 'donation' | 'membership';
+  name: string;
+  targetValue: string;
+  currentValue: string;
+  startsAt: string | null;
+  endsAt: string | null;
+  enabled: number;
+}
+
+// Update donation goal progress (add value to currentValue)
+async function updateDonationGoalProgress(slug: string, channelId: string, value: string): Promise<void> {
+  try {
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+
+    // Get active donation goals
+    const goals = await queryAll<GoalRow>(
+      `SELECT * FROM goals
+       WHERE channelId = ? AND type = 'donation' AND enabled = 1
+         AND (startsAt IS NULL OR startsAt <= ?)
+         AND (endsAt IS NULL OR endsAt >= ?)`,
+      [channelId, now, now]
+    );
+
+    for (const goal of goals) {
+      // Add value to currentValue
+      const newValue = (BigInt(goal.currentValue) + BigInt(value)).toString();
+
+      await execute(
+        'UPDATE goals SET currentValue = ?, updatedAt = NOW() WHERE id = ?',
+        [newValue, goal.id]
+      );
+
+      // Broadcast goal update to overlay
+      const progress = calculateGoalProgress(newValue, goal.targetValue);
+      broadcastToOverlay(slug, 'goal.updated', {
+        id: goal.id,
+        type: goal.type,
+        name: goal.name,
+        targetValue: goal.targetValue,
+        currentValue: newValue,
+        progress,
+        enabled: true,
+      });
+
+      logger.info('Donation goal progress updated', {
+        goalId: goal.id,
+        previousValue: goal.currentValue,
+        addedValue: value,
+        newValue,
+        progress,
+      });
+    }
+  } catch (err) {
+    logger.error('Failed to update donation goal progress', { error: err });
+  }
+}
+
+// Update membership goal progress (count active members)
+async function updateMembershipGoalProgress(slug: string, channelId: string): Promise<void> {
+  try {
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+
+    // Get active membership goals
+    const goals = await queryAll<GoalRow>(
+      `SELECT * FROM goals
+       WHERE channelId = ? AND type = 'membership' AND enabled = 1
+         AND (startsAt IS NULL OR startsAt <= ?)
+         AND (endsAt IS NULL OR endsAt >= ?)`,
+      [channelId, now, now]
+    );
+
+    if (goals.length === 0) return;
+
+    // Count active members
+    const countResult = await queryOne<{ count: number }>(
+      `SELECT COUNT(*) as count FROM memberships
+       WHERE channelId = ? AND revoked = 0 AND expiresAt > ?`,
+      [channelId, now]
+    );
+    const activeMemberCount = countResult?.count?.toString() || '0';
+
+    for (const goal of goals) {
+      // Update currentValue to active member count
+      await execute(
+        'UPDATE goals SET currentValue = ?, updatedAt = NOW() WHERE id = ?',
+        [activeMemberCount, goal.id]
+      );
+
+      // Broadcast goal update to overlay
+      const progress = calculateGoalProgress(activeMemberCount, goal.targetValue);
+      broadcastToOverlay(slug, 'goal.updated', {
+        id: goal.id,
+        type: goal.type,
+        name: goal.name,
+        targetValue: goal.targetValue,
+        currentValue: activeMemberCount,
+        progress,
+        enabled: true,
+      });
+
+      logger.info('Membership goal progress updated', {
+        goalId: goal.id,
+        activeMemberCount,
+        progress,
+      });
+    }
+  } catch (err) {
+    logger.error('Failed to update membership goal progress', { error: err });
+  }
+}
+
+function calculateGoalProgress(current: string, target: string): number {
+  try {
+    const currentNum = BigInt(current);
+    const targetNum = BigInt(target);
+    if (targetNum === 0n) return 0;
+    const progressBig = (currentNum * 100n) / targetNum;
+    return Math.min(Number(progressBig), 100);
+  } catch {
+    return 0;
+  }
 }
 
 const router = Router();
@@ -238,6 +364,9 @@ router.post('/channels/:slug/trigger', async (req: Request, res: Response, next:
       timestamp,
       actionKey,
     });
+
+    // Update donation goal progress
+    await updateDonationGoalProgress(slug, channel.id, settleResult.value);
 
     logger.info('Effect triggered', { eventId, actionKey, txHash: settleResult.txHash });
 
@@ -443,6 +572,9 @@ router.post('/channels/:slug/qa', async (req: Request, res: Response, next: Next
       qaId,
     });
 
+    // Update donation goal progress
+    await updateDonationGoalProgress(slug, channel.id, settleResult.value);
+
     logger.info('Q&A created', { qaId, tier, txHash: settleResult.txHash, displayName: effectiveDisplayName, isMember });
 
     res.json({
@@ -626,6 +758,9 @@ router.post('/channels/:slug/donate', async (req: Request, res: Response, next: 
       txHash: settleResult.txHash,
       timestamp,
     });
+
+    // Update donation goal progress
+    await updateDonationGoalProgress(slug, channel.id, settleResult.value);
 
     logger.info('Donation received', { donationId, paymentId, txHash: settleResult.txHash });
 
@@ -846,6 +981,12 @@ router.post('/channels/:slug/memberships', async (req: Request, res: Response, n
       timestamp: Date.now(),
       membershipPlanId: planId,
     });
+
+    // Update donation goal progress (membership payments count as donations)
+    await updateDonationGoalProgress(slug, channel.id, settleResult.value);
+
+    // Update membership goal progress (count active members)
+    await updateMembershipGoalProgress(slug, channel.id);
 
     logger.info('Membership created/renewed', { paymentId, fromAddress, planId, expiresAt: expiresAt.toISOString() });
 

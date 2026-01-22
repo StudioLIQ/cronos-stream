@@ -71,6 +71,20 @@ interface MembershipRow {
   updatedAt: string;
 }
 
+interface GoalRow {
+  id: string;
+  channelId: string;
+  type: 'donation' | 'membership';
+  name: string;
+  targetValue: string;
+  currentValue: string;
+  startsAt: string | null;
+  endsAt: string | null;
+  enabled: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // GET /api/channels/:slug - Get channel info
 router.get('/channels/:slug', async (req, res, next) => {
   try {
@@ -312,6 +326,60 @@ router.get('/status', (_req, res) => {
     serverTime: new Date().toISOString(),
   });
 });
+
+// GET /api/channels/:slug/goals/active - Get enabled goals for overlay (public)
+router.get('/channels/:slug/goals/active', async (req, res, next) => {
+  try {
+    const { slug } = req.params;
+
+    const channel = await queryOne<{ id: string }>('SELECT id FROM channels WHERE slug = ?', [slug]);
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+
+    // Get enabled goals that are currently active (within time window if specified)
+    const goals = await queryAll<GoalRow>(
+      `SELECT * FROM goals
+       WHERE channelId = ? AND enabled = 1
+         AND (startsAt IS NULL OR startsAt <= ?)
+         AND (endsAt IS NULL OR endsAt >= ?)
+       ORDER BY type, createdAt DESC`,
+      [channel.id, now, now]
+    );
+
+    res.json({
+      items: goals.map((g) => ({
+        id: g.id,
+        type: g.type,
+        name: g.name,
+        targetValue: g.targetValue,
+        currentValue: g.currentValue,
+        progress: calculateProgress(g.currentValue, g.targetValue),
+        startsAt: g.startsAt,
+        endsAt: g.endsAt,
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+function calculateProgress(current: string, target: string): number {
+  try {
+    const currentNum = BigInt(current);
+    const targetNum = BigInt(target);
+    if (targetNum === 0n) return 0;
+    // Calculate percentage (0-100), capped at 100
+    const progressBig = (currentNum * 100n) / targetNum;
+    const progress = Number(progressBig);
+    return Math.min(progress, 100);
+  } catch {
+    return 0;
+  }
+}
 
 export async function getChannelById(slug: string): Promise<ChannelRow | undefined> {
   return queryOne<ChannelRow>(

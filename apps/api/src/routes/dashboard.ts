@@ -178,6 +178,20 @@ interface MembershipRow {
   planName?: string;
 }
 
+interface GoalRow {
+  id: string;
+  channelId: string;
+  type: 'donation' | 'membership';
+  name: string;
+  targetValue: string;
+  currentValue: string;
+  startsAt: string | null;
+  endsAt: string | null;
+  enabled: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // PATCH /api/channels/:slug - Update channel settings (dashboard auth)
 router.patch('/channels/:slug', async (req, res, next) => {
   try {
@@ -705,6 +719,336 @@ router.post('/channels/:slug/demo/reset', async (req, res, next) => {
       ok: true,
       message: 'Demo data reset successfully',
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// T9.3: Goals endpoints
+
+// GET /api/channels/:slug/goals - List goals (dashboard auth)
+router.get('/channels/:slug/goals', async (req, res, next) => {
+  try {
+    const { slug } = req.params;
+
+    const channel = await getChannelBySlug(slug);
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
+    const goals = await queryAll<GoalRow>(
+      'SELECT * FROM goals WHERE channelId = ? ORDER BY createdAt DESC',
+      [channel.id]
+    );
+
+    res.json({
+      items: goals.map((g) => ({
+        id: g.id,
+        type: g.type,
+        name: g.name,
+        targetValue: g.targetValue,
+        currentValue: g.currentValue,
+        startsAt: g.startsAt,
+        endsAt: g.endsAt,
+        enabled: g.enabled === 1,
+        createdAt: g.createdAt,
+        updatedAt: g.updatedAt,
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/channels/:slug/goals - Create goal (dashboard auth)
+router.post('/channels/:slug/goals', async (req, res, next) => {
+  try {
+    const { slug } = req.params;
+    const { type, name, targetValue, startsAt, endsAt } = req.body;
+
+    // Validate type
+    if (!type || !['donation', 'membership'].includes(type)) {
+      res.status(400).json({ error: 'Invalid type. Must be "donation" or "membership"' });
+      return;
+    }
+
+    // Validate name
+    if (!name || typeof name !== 'string' || name.trim().length === 0) {
+      res.status(400).json({ error: 'Name is required' });
+      return;
+    }
+
+    // Validate targetValue (must be numeric string for donation, positive int for membership)
+    if (!targetValue) {
+      res.status(400).json({ error: 'targetValue is required' });
+      return;
+    }
+
+    if (type === 'donation') {
+      if (!/^\d+$/.test(targetValue) || BigInt(targetValue) <= 0n) {
+        res.status(400).json({ error: 'targetValue must be a positive integer string (base units)' });
+        return;
+      }
+    } else {
+      const parsed = parseInt(targetValue, 10);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        res.status(400).json({ error: 'targetValue must be a positive integer for membership goals' });
+        return;
+      }
+    }
+
+    const channel = await getChannelBySlug(slug);
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
+    const goalId = uuid();
+    const now = nowUtcMysqlDatetime();
+
+    await execute(
+      `INSERT INTO goals (id, channelId, type, name, targetValue, currentValue, startsAt, endsAt, enabled, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, '0', ?, ?, 1, ?, ?)`,
+      [
+        goalId,
+        channel.id,
+        type,
+        name.trim(),
+        targetValue,
+        startsAt || null,
+        endsAt || null,
+        now,
+        now,
+      ]
+    );
+
+    logger.info('Goal created', { goalId, channelId: channel.id, type, name: name.trim() });
+
+    res.status(201).json({
+      ok: true,
+      goal: {
+        id: goalId,
+        type,
+        name: name.trim(),
+        targetValue,
+        currentValue: '0',
+        startsAt: startsAt || null,
+        endsAt: endsAt || null,
+        enabled: true,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PATCH /api/channels/:slug/goals/:goalId - Update goal (dashboard auth)
+router.patch('/channels/:slug/goals/:goalId', async (req, res, next) => {
+  try {
+    const { slug, goalId } = req.params;
+    const { name, targetValue, currentValue, startsAt, endsAt, enabled } = req.body;
+
+    const channel = await getChannelBySlug(slug);
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
+    const goal = await queryOne<GoalRow>(
+      'SELECT * FROM goals WHERE id = ? AND channelId = ?',
+      [goalId, channel.id]
+    );
+
+    if (!goal) {
+      res.status(404).json({ error: 'Goal not found' });
+      return;
+    }
+
+    const updates: string[] = [];
+    const params: (string | number | null)[] = [];
+
+    if (name !== undefined) {
+      if (typeof name !== 'string' || name.trim().length === 0) {
+        res.status(400).json({ error: 'Name must be a non-empty string' });
+        return;
+      }
+      updates.push('name = ?');
+      params.push(name.trim());
+    }
+
+    if (targetValue !== undefined) {
+      if (goal.type === 'donation') {
+        if (!/^\d+$/.test(targetValue) || BigInt(targetValue) <= 0n) {
+          res.status(400).json({ error: 'targetValue must be a positive integer string' });
+          return;
+        }
+      } else {
+        const parsed = parseInt(targetValue, 10);
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+          res.status(400).json({ error: 'targetValue must be a positive integer' });
+          return;
+        }
+      }
+      updates.push('targetValue = ?');
+      params.push(targetValue);
+    }
+
+    if (currentValue !== undefined) {
+      if (!/^\d+$/.test(currentValue)) {
+        res.status(400).json({ error: 'currentValue must be a non-negative integer string' });
+        return;
+      }
+      updates.push('currentValue = ?');
+      params.push(currentValue);
+    }
+
+    if (startsAt !== undefined) {
+      updates.push('startsAt = ?');
+      params.push(startsAt || null);
+    }
+
+    if (endsAt !== undefined) {
+      updates.push('endsAt = ?');
+      params.push(endsAt || null);
+    }
+
+    if (enabled !== undefined) {
+      updates.push('enabled = ?');
+      params.push(enabled ? 1 : 0);
+    }
+
+    if (updates.length === 0) {
+      res.status(400).json({ error: 'No fields to update' });
+      return;
+    }
+
+    updates.push('updatedAt = NOW()');
+    params.push(goalId, channel.id);
+
+    await execute(
+      `UPDATE goals SET ${updates.join(', ')} WHERE id = ? AND channelId = ?`,
+      params
+    );
+
+    // Fetch updated goal
+    const updatedGoal = await queryOne<GoalRow>(
+      'SELECT * FROM goals WHERE id = ?',
+      [goalId]
+    );
+
+    // Broadcast goal update to overlay
+    if (updatedGoal && updatedGoal.enabled) {
+      broadcastToOverlay(slug, 'goal.updated', {
+        id: updatedGoal.id,
+        type: updatedGoal.type,
+        name: updatedGoal.name,
+        targetValue: updatedGoal.targetValue,
+        currentValue: updatedGoal.currentValue,
+        enabled: updatedGoal.enabled === 1,
+      });
+    }
+
+    logger.info('Goal updated', { goalId, channelId: channel.id });
+
+    res.json({
+      ok: true,
+      goal: updatedGoal
+        ? {
+            id: updatedGoal.id,
+            type: updatedGoal.type,
+            name: updatedGoal.name,
+            targetValue: updatedGoal.targetValue,
+            currentValue: updatedGoal.currentValue,
+            startsAt: updatedGoal.startsAt,
+            endsAt: updatedGoal.endsAt,
+            enabled: updatedGoal.enabled === 1,
+          }
+        : null,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /api/channels/:slug/goals/:goalId - Delete goal (dashboard auth)
+router.delete('/channels/:slug/goals/:goalId', async (req, res, next) => {
+  try {
+    const { slug, goalId } = req.params;
+
+    const channel = await getChannelBySlug(slug);
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
+    const goal = await queryOne<GoalRow>(
+      'SELECT * FROM goals WHERE id = ? AND channelId = ?',
+      [goalId, channel.id]
+    );
+
+    if (!goal) {
+      res.status(404).json({ error: 'Goal not found' });
+      return;
+    }
+
+    await execute(
+      'DELETE FROM goals WHERE id = ? AND channelId = ?',
+      [goalId, channel.id]
+    );
+
+    // Broadcast goal removal to overlay
+    broadcastToOverlay(slug, 'goal.removed', { id: goalId });
+
+    logger.info('Goal deleted', { goalId, channelId: channel.id });
+
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/channels/:slug/goals/:goalId/reset - Reset goal progress (dashboard auth)
+router.post('/channels/:slug/goals/:goalId/reset', async (req, res, next) => {
+  try {
+    const { slug, goalId } = req.params;
+
+    const channel = await getChannelBySlug(slug);
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
+    const goal = await queryOne<GoalRow>(
+      'SELECT * FROM goals WHERE id = ? AND channelId = ?',
+      [goalId, channel.id]
+    );
+
+    if (!goal) {
+      res.status(404).json({ error: 'Goal not found' });
+      return;
+    }
+
+    await execute(
+      "UPDATE goals SET currentValue = '0', updatedAt = NOW() WHERE id = ?",
+      [goalId]
+    );
+
+    // Broadcast goal update to overlay
+    if (goal.enabled) {
+      broadcastToOverlay(slug, 'goal.updated', {
+        id: goal.id,
+        type: goal.type,
+        name: goal.name,
+        targetValue: goal.targetValue,
+        currentValue: '0',
+        enabled: true,
+      });
+    }
+
+    logger.info('Goal reset', { goalId, channelId: channel.id });
+
+    res.json({ ok: true });
   } catch (err) {
     next(err);
   }

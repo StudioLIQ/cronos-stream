@@ -157,3 +157,22 @@ CREATE TABLE IF NOT EXISTS channel_profile_nonces (
   KEY idx_channel_profile_nonces_channel_address_expires (channelId, address, expiresAt),
   CONSTRAINT fk_channel_profile_nonces_channel FOREIGN KEY (channelId) REFERENCES channels(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- T9.3: Goals (donation / membership)
+CREATE TABLE IF NOT EXISTS goals (
+  id CHAR(36) NOT NULL,
+  channelId CHAR(36) NOT NULL,
+  type ENUM('donation', 'membership') NOT NULL,
+  name VARCHAR(191) NOT NULL,
+  targetValue VARCHAR(64) NOT NULL,
+  currentValue VARCHAR(64) NOT NULL DEFAULT '0',
+  startsAt DATETIME NULL,
+  endsAt DATETIME NULL,
+  enabled TINYINT(1) NOT NULL DEFAULT 1,
+  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_goals_channel (channelId),
+  KEY idx_goals_channel_type_enabled (channelId, type, enabled),
+  CONSTRAINT fk_goals_channel FOREIGN KEY (channelId) REFERENCES channels(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

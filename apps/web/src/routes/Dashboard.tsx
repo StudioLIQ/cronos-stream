@@ -65,6 +65,19 @@ interface MemberItem {
   createdAt: string;
 }
 
+interface GoalItem {
+  id: string;
+  type: 'donation' | 'membership';
+  name: string;
+  targetValue: string;
+  currentValue: string;
+  startsAt: string | null;
+  endsAt: string | null;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 const API_BASE = '/api';
 
 function formatUSDC(baseUnits: string): string {
@@ -85,7 +98,7 @@ export default function Dashboard() {
   const [filter, setFilter] = useState<'queued' | 'showing' | 'answered' | 'skipped' | 'blocked'>('queued');
 
   // Tab state
-  const [activeTab, setActiveTab] = useState<'qa' | 'supports' | 'members'>('qa');
+  const [activeTab, setActiveTab] = useState<'qa' | 'supports' | 'members' | 'goals'>('qa');
 
   // Supports state
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
@@ -104,6 +117,12 @@ export default function Dashboard() {
   // Demo reset state
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
+
+  // Goals state
+  const [goals, setGoals] = useState<GoalItem[]>([]);
+  const [goalsLoading, setGoalsLoading] = useState(false);
+  const [showGoalForm, setShowGoalForm] = useState(false);
+  const [newGoal, setNewGoal] = useState({ type: 'donation' as 'donation' | 'membership', name: '', targetValue: '' });
 
   const fetchItems = useCallback(async () => {
     if (!slug || !token) return;
@@ -236,6 +255,152 @@ export default function Dashboard() {
     }
   };
 
+  const fetchGoals = useCallback(async () => {
+    if (!slug || !token) return;
+    setGoalsLoading(true);
+
+    try {
+      const res = await fetch(`${API_BASE}/channels/${slug}/goals`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to fetch goals');
+      }
+
+      const data = await res.json();
+      setGoals(data.items);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setGoalsLoading(false);
+    }
+  }, [slug, token]);
+
+  const createGoal = async () => {
+    if (!slug || !token) return;
+
+    // Validate inputs
+    if (!newGoal.name.trim()) {
+      setError('Goal name is required');
+      return;
+    }
+
+    // For donation goals, convert USDC amount to base units
+    let targetValue = newGoal.targetValue;
+    if (newGoal.type === 'donation') {
+      const parsed = parseFloat(newGoal.targetValue);
+      if (isNaN(parsed) || parsed <= 0) {
+        setError('Target value must be a positive number');
+        return;
+      }
+      targetValue = Math.round(parsed * 1000000).toString();
+    } else {
+      const parsed = parseInt(newGoal.targetValue, 10);
+      if (isNaN(parsed) || parsed <= 0) {
+        setError('Target value must be a positive integer');
+        return;
+      }
+      targetValue = parsed.toString();
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/channels/${slug}/goals`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          type: newGoal.type,
+          name: newGoal.name.trim(),
+          targetValue,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to create goal');
+      }
+
+      setShowGoalForm(false);
+      setNewGoal({ type: 'donation', name: '', targetValue: '' });
+      fetchGoals();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const deleteGoal = async (goalId: string) => {
+    if (!slug || !token) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/channels/${slug}/goals/${goalId}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to delete goal');
+      }
+
+      fetchGoals();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const resetGoal = async (goalId: string) => {
+    if (!slug || !token) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/channels/${slug}/goals/${goalId}/reset`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to reset goal');
+      }
+
+      fetchGoals();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const toggleGoalEnabled = async (goalId: string, enabled: boolean) => {
+    if (!slug || !token) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/channels/${slug}/goals/${goalId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ enabled }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to update goal');
+      }
+
+      fetchGoals();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
   useEffect(() => {
     if (authenticated && activeTab === 'qa') {
       fetchItems();
@@ -253,6 +418,12 @@ export default function Dashboard() {
       fetchMembers();
     }
   }, [fetchMembers, authenticated, memberFilter, activeTab]);
+
+  useEffect(() => {
+    if (authenticated && activeTab === 'goals') {
+      fetchGoals();
+    }
+  }, [fetchGoals, authenticated, activeTab]);
 
   useEffect(() => {
     if (!slug || !authenticated) return;
@@ -443,6 +614,17 @@ export default function Dashboard() {
             }}
           >
             Members
+          </button>
+          <button
+            onClick={() => setActiveTab('goals')}
+            style={{
+              background: activeTab === 'goals' ? '#3b82f6' : '#1a1a1a',
+              color: '#fff',
+              border: '1px solid #333',
+              padding: '8px 16px',
+            }}
+          >
+            Goals
           </button>
         </div>
         {activeTab === 'qa' && (
@@ -832,6 +1014,236 @@ export default function Dashboard() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Goals Tab */}
+      {activeTab === 'goals' && (
+        <div className="card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h2>Goals</h2>
+            <button
+              onClick={() => setShowGoalForm(true)}
+              style={{ background: '#10b981', color: '#fff', padding: '8px 16px' }}
+            >
+              + New Goal
+            </button>
+          </div>
+
+          {goalsLoading && <p>Loading...</p>}
+
+          {!goalsLoading && goals.length === 0 && (
+            <p style={{ color: '#888' }}>No goals created yet. Create a goal to display progress on the overlay.</p>
+          )}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {goals.map((goal) => {
+              const progress = goal.type === 'donation'
+                ? BigInt(goal.targetValue) > 0n
+                  ? Number((BigInt(goal.currentValue) * 100n) / BigInt(goal.targetValue))
+                  : 0
+                : parseInt(goal.targetValue, 10) > 0
+                  ? Math.round((parseInt(goal.currentValue, 10) * 100) / parseInt(goal.targetValue, 10))
+                  : 0;
+
+              return (
+                <div
+                  key={goal.id}
+                  style={{
+                    padding: '16px',
+                    background: '#1a1a1a',
+                    borderRadius: '8px',
+                    opacity: goal.enabled ? 1 : 0.6,
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                        <span style={{ fontWeight: 600, fontSize: '16px' }}>{goal.name}</span>
+                        <span
+                          style={{
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                            fontSize: '11px',
+                            background: goal.type === 'donation' ? '#f59e0b' : '#6366f1',
+                            textTransform: 'uppercase',
+                            fontWeight: 'bold',
+                          }}
+                        >
+                          {goal.type}
+                        </span>
+                        {!goal.enabled && (
+                          <span
+                            style={{
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              fontSize: '11px',
+                              background: '#6b7280',
+                              textTransform: 'uppercase',
+                            }}
+                          >
+                            Disabled
+                          </span>
+                        )}
+                      </div>
+                      <p style={{ fontSize: '13px', color: '#888' }}>
+                        {goal.type === 'donation'
+                          ? `$${formatUSDC(goal.currentValue)} / $${formatUSDC(goal.targetValue)} USDC`
+                          : `${goal.currentValue} / ${goal.targetValue} members`}
+                        {' '}({Math.min(progress, 100)}%)
+                      </p>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        onClick={() => toggleGoalEnabled(goal.id, !goal.enabled)}
+                        style={{
+                          background: goal.enabled ? '#6b7280' : '#10b981',
+                          color: '#fff',
+                          fontSize: '12px',
+                          padding: '6px 12px',
+                        }}
+                      >
+                        {goal.enabled ? 'Disable' : 'Enable'}
+                      </button>
+                      <button
+                        onClick={() => resetGoal(goal.id)}
+                        style={{
+                          background: '#3b82f6',
+                          color: '#fff',
+                          fontSize: '12px',
+                          padding: '6px 12px',
+                        }}
+                      >
+                        Reset
+                      </button>
+                      <button
+                        onClick={() => deleteGoal(goal.id)}
+                        style={{
+                          background: '#ef4444',
+                          color: '#fff',
+                          fontSize: '12px',
+                          padding: '6px 12px',
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                  {/* Progress bar */}
+                  <div
+                    style={{
+                      width: '100%',
+                      height: '10px',
+                      background: 'rgba(255, 255, 255, 0.1)',
+                      borderRadius: '5px',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: `${Math.min(progress, 100)}%`,
+                        height: '100%',
+                        background: goal.type === 'donation'
+                          ? 'linear-gradient(90deg, #f59e0b, #fbbf24)'
+                          : 'linear-gradient(90deg, #6366f1, #818cf8)',
+                        borderRadius: '5px',
+                        transition: 'width 0.3s ease-out',
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* New Goal Form Modal */}
+          {showGoalForm && (
+            <div
+              style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                background: 'rgba(0, 0, 0, 0.7)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 9999,
+              }}
+              onClick={() => setShowGoalForm(false)}
+            >
+              <div
+                className="card"
+                style={{ maxWidth: '400px', width: '90%' }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <h2 style={{ marginBottom: '16px' }}>Create New Goal</h2>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px', color: '#888' }}>
+                      Goal Type
+                    </label>
+                    <select
+                      value={newGoal.type}
+                      onChange={(e) => setNewGoal({ ...newGoal, type: e.target.value as 'donation' | 'membership' })}
+                      style={{ width: '100%', padding: '8px', background: '#1a1a1a', color: '#fff', border: '1px solid #333', borderRadius: '4px' }}
+                    >
+                      <option value="donation">Donation (USDC)</option>
+                      <option value="membership">Membership (Active Members)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px', color: '#888' }}>
+                      Goal Name
+                    </label>
+                    <input
+                      type="text"
+                      value={newGoal.name}
+                      onChange={(e) => setNewGoal({ ...newGoal, name: e.target.value })}
+                      placeholder="e.g., Stream Goal, 100 Members"
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px', color: '#888' }}>
+                      Target {newGoal.type === 'donation' ? '(USDC Amount)' : '(Number of Members)'}
+                    </label>
+                    <input
+                      type="number"
+                      value={newGoal.targetValue}
+                      onChange={(e) => setNewGoal({ ...newGoal, targetValue: e.target.value })}
+                      placeholder={newGoal.type === 'donation' ? 'e.g., 100' : 'e.g., 50'}
+                      step={newGoal.type === 'donation' ? '0.01' : '1'}
+                      min="0"
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '20px' }}>
+                  <button
+                    onClick={() => setShowGoalForm(false)}
+                    style={{
+                      background: 'transparent',
+                      color: '#888',
+                      border: '1px solid #333',
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={createGoal}
+                    style={{
+                      background: '#10b981',
+                      color: '#fff',
+                    }}
+                  >
+                    Create Goal
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

@@ -46,6 +46,25 @@ async function ensureIndexExists(
   await db.query(opts.ddl);
 }
 
+async function ensureTableExists(
+  db: Pool,
+  opts: { table: string; ddl: string }
+): Promise<void> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT COUNT(*) as count
+     FROM information_schema.tables
+     WHERE table_schema = DATABASE()
+       AND table_name = ?`,
+    [opts.table]
+  );
+
+  const count = Number((rows?.[0] as { count?: unknown } | undefined)?.count ?? 0);
+  if (count > 0) return;
+
+  logger.info(`Creating missing table ${opts.table}...`);
+  await db.query(opts.ddl);
+}
+
 export async function migrate(db: Pool): Promise<void> {
   const schemaPath = path.join(__dirname, 'schema.sql');
   const schema = fs.readFileSync(schemaPath, 'utf-8');
@@ -109,6 +128,28 @@ export async function migrate(db: Pool): Promise<void> {
     table: 'qa_items',
     column: 'memberPlanId',
     ddl: `ALTER TABLE qa_items ADD COLUMN memberPlanId CHAR(36) NULL AFTER isMember`,
+  });
+
+  // T9.3: Goals table
+  await ensureTableExists(db, {
+    table: 'goals',
+    ddl: `CREATE TABLE IF NOT EXISTS goals (
+      id CHAR(36) NOT NULL,
+      channelId CHAR(36) NOT NULL,
+      type ENUM('donation', 'membership') NOT NULL,
+      name VARCHAR(191) NOT NULL,
+      targetValue VARCHAR(64) NOT NULL,
+      currentValue VARCHAR(64) NOT NULL DEFAULT '0',
+      startsAt DATETIME NULL,
+      endsAt DATETIME NULL,
+      enabled TINYINT(1) NOT NULL DEFAULT 1,
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_goals_channel (channelId),
+      KEY idx_goals_channel_type_enabled (channelId, type, enabled),
+      CONSTRAINT fk_goals_channel FOREIGN KEY (channelId) REFERENCES channels(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
   });
 
   logger.info('Database migration complete');

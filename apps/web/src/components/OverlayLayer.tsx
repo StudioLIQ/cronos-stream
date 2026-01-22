@@ -82,6 +82,31 @@ interface ActiveSupportAlert {
   expiresAt: number;
 }
 
+interface GoalData {
+  id: string;
+  type: 'donation' | 'membership';
+  name: string;
+  targetValue: string;
+  currentValue: string;
+  progress: number;
+  startsAt: string | null;
+  endsAt: string | null;
+}
+
+interface GoalUpdatedEvent {
+  id: string;
+  type: 'donation' | 'membership';
+  name: string;
+  targetValue: string;
+  currentValue: string;
+  progress: number;
+  enabled: boolean;
+}
+
+interface GoalRemovedEvent {
+  id: string;
+}
+
 export type OverlayLayerProps = {
   slug: string;
   /**
@@ -104,8 +129,25 @@ export function OverlayLayer({ slug, position = 'absolute', zIndex = 10 }: Overl
   const [activeDonation, setActiveDonation] = useState<ActiveDonation | null>(null);
   const [flashColor, setFlashColor] = useState<string | null>(null);
   const [supportAlerts, setSupportAlerts] = useState<ActiveSupportAlert[]>([]);
+  const [goals, setGoals] = useState<GoalData[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const alertIdCounter = useRef(0);
+
+  // Fetch initial goals
+  useEffect(() => {
+    async function fetchGoals() {
+      try {
+        const res = await fetch(`/api/channels/${slug}/goals/active`);
+        if (res.ok) {
+          const data = await res.json();
+          setGoals(data.items || []);
+        }
+      } catch (err) {
+        console.error('Failed to fetch goals:', err);
+      }
+    }
+    fetchGoals();
+  }, [slug]);
 
   useEffect(() => {
     const eventSource = connectSSE(`/api/channels/${slug}/stream/overlay`, (eventName, data) => {
@@ -117,6 +159,10 @@ export function OverlayLayer({ slug, position = 'absolute', zIndex = 10 }: Overl
         handleDonation(data as DonationReceivedEvent);
       } else if (eventName === 'support.alert') {
         handleSupportAlert(data as SupportAlertEvent);
+      } else if (eventName === 'goal.updated') {
+        handleGoalUpdated(data as GoalUpdatedEvent);
+      } else if (eventName === 'goal.removed') {
+        handleGoalRemoved(data as GoalRemovedEvent);
       }
     });
 
@@ -221,6 +267,42 @@ export function OverlayLayer({ slug, position = 'absolute', zIndex = 10 }: Overl
       }
       return updated;
     });
+  };
+
+  const handleGoalUpdated = (event: GoalUpdatedEvent) => {
+    if (!event.enabled) {
+      // Goal disabled, remove it
+      setGoals((prev) => prev.filter((g) => g.id !== event.id));
+      return;
+    }
+
+    setGoals((prev) => {
+      const existingIndex = prev.findIndex((g) => g.id === event.id);
+      const updatedGoal: GoalData = {
+        id: event.id,
+        type: event.type,
+        name: event.name,
+        targetValue: event.targetValue,
+        currentValue: event.currentValue,
+        progress: event.progress,
+        startsAt: null,
+        endsAt: null,
+      };
+
+      if (existingIndex >= 0) {
+        // Update existing goal
+        const updated = [...prev];
+        updated[existingIndex] = { ...prev[existingIndex], ...updatedGoal };
+        return updated;
+      } else {
+        // Add new goal
+        return [...prev, updatedGoal];
+      }
+    });
+  };
+
+  const handleGoalRemoved = (event: GoalRemovedEvent) => {
+    setGoals((prev) => prev.filter((g) => g.id !== event.id));
   };
 
   const getKindLabel = (kind: string): string => {
@@ -375,6 +457,87 @@ export function OverlayLayer({ slug, position = 'absolute', zIndex = 10 }: Overl
         </div>
       )}
 
+      {/* Goal widgets (bottom-left corner) */}
+      {goals.length > 0 && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: '20px',
+            left: '20px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px',
+            maxWidth: '320px',
+          }}
+        >
+          {goals.map((goal) => (
+            <div
+              key={goal.id}
+              style={{
+                background: 'rgba(17, 24, 39, 0.9)',
+                color: '#fff',
+                padding: '12px 16px',
+                borderRadius: '10px',
+                minWidth: '240px',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <span style={{ fontSize: '14px', fontWeight: 600 }}>{goal.name}</span>
+                <span
+                  style={{
+                    fontSize: '11px',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    background: goal.type === 'donation' ? '#f59e0b' : '#6366f1',
+                    textTransform: 'uppercase',
+                    fontWeight: 'bold',
+                  }}
+                >
+                  {goal.type === 'donation' ? 'Donation' : 'Members'}
+                </span>
+              </div>
+              {/* Progress bar */}
+              <div
+                style={{
+                  width: '100%',
+                  height: '12px',
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  borderRadius: '6px',
+                  overflow: 'hidden',
+                  marginBottom: '6px',
+                }}
+              >
+                <div
+                  style={{
+                    width: `${goal.progress}%`,
+                    height: '100%',
+                    background: goal.type === 'donation'
+                      ? 'linear-gradient(90deg, #f59e0b, #fbbf24)'
+                      : 'linear-gradient(90deg, #6366f1, #818cf8)',
+                    borderRadius: '6px',
+                    transition: 'width 0.5s ease-out',
+                  }}
+                />
+              </div>
+              {/* Progress text */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#9ca3af' }}>
+                <span>
+                  {goal.type === 'donation'
+                    ? `$${formatUsdcAmount(goal.currentValue)}`
+                    : goal.currentValue}
+                </span>
+                <span>
+                  {goal.type === 'donation'
+                    ? `$${formatUsdcAmount(goal.targetValue)}`
+                    : goal.targetValue}
+                  {' '}({goal.progress}%)
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Support alert toasts (top-right corner) */}
       <div
         style={{
@@ -462,6 +625,12 @@ export function OverlayLayer({ slug, position = 'absolute', zIndex = 10 }: Overl
         @keyframes alert-slide-in {
           0% { transform: translateX(100px); opacity: 0; }
           100% { transform: translateX(0); opacity: 1; }
+        }
+
+        @keyframes goal-pulse {
+          0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4); }
+          50% { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0); }
+          100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
         }
       `}</style>
     </div>
