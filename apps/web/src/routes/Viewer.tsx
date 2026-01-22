@@ -219,23 +219,6 @@ export default function Viewer() {
     }
   };
 
-  async function settleWithX402<T extends PaymentResponse | MembershipResponse>(
-    call: (paymentHeader?: string) => Promise<T | Error402Response>
-  ): Promise<T> {
-    let result = await call();
-
-    if (is402Response(result)) {
-      if (!walletSigner) throw new Error('Wallet not connected');
-      const paymentHeader = await createPaymentHeader(walletSigner, result.paymentRequirements);
-      result = await call(paymentHeader);
-      if (is402Response(result)) {
-        throw new Error('Payment still required after signing');
-      }
-    }
-
-    return result as T;
-  }
-
   useEffect(() => {
     refreshMySupports();
   }, [slug, walletAddress]);
