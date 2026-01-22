@@ -2,7 +2,11 @@ import { Contract, JsonRpcProvider, Wallet, keccak256, toUtf8Bytes } from 'ether
 import { config } from '../config.js';
 import { getNetworkConfig } from '../x402/constants.js';
 
-const MEMBERSHIP_NFT_ABI = ['function mint(address to, uint256 id, uint256 amount, bytes data) external'] as const;
+const MEMBERSHIP_NFT_ABI = [
+  'function mint(address to, uint256 id, uint256 amount, bytes data) external',
+  'function burn(address from, uint256 id, uint256 amount) external',
+  'function balanceOf(address account, uint256 id) external view returns (uint256)',
+] as const;
 
 function normalizeNetworkKey(network: string): string {
   return network === 'cronos' ? 'cronos-mainnet' : network;
@@ -19,6 +23,13 @@ function normalizePrivateKey(value: string): string {
 }
 
 export interface MembershipNftMintResult {
+  txHash: string;
+  contractAddress: string;
+  tokenId: string;
+  amount: string;
+}
+
+export interface MembershipNftBurnResult {
   txHash: string;
   contractAddress: string;
   tokenId: string;
@@ -90,3 +101,51 @@ export async function mintMembershipNft(params: {
   };
 }
 
+export async function burnMembershipNft(params: {
+  network: string;
+  slug: string;
+  fromAddress: string;
+  amount?: bigint;
+}): Promise<MembershipNftBurnResult | null> {
+  const { network, slug, fromAddress, amount } = params;
+
+  if (!isHexAddress(fromAddress)) {
+    throw new Error(`Invalid fromAddress: ${fromAddress}`);
+  }
+
+  const contractAddress = getMembershipNftContractAddress(network);
+  if (!contractAddress) {
+    throw new Error(`Membership NFT contract not configured for network: ${network}`);
+  }
+
+  const privateKeyRaw = config.membershipNft.minterPrivateKey;
+  if (!privateKeyRaw) {
+    throw new Error('Membership NFT minter key not configured (MEMBERSHIP_NFT_MINTER_PRIVATE_KEY)');
+  }
+
+  const privateKey = normalizePrivateKey(privateKeyRaw);
+  const networkConfig = getNetworkConfig(network);
+
+  const provider = new JsonRpcProvider(networkConfig.rpc);
+  const wallet = new Wallet(privateKey, provider);
+  const contract = new Contract(contractAddress, MEMBERSHIP_NFT_ABI, wallet);
+
+  const tokenId = getMembershipTokenId(slug);
+
+  const balanceRaw = amount === undefined ? await contract.balanceOf(fromAddress, tokenId) : amount;
+  const burnAmount = BigInt(balanceRaw);
+  if (burnAmount <= 0n) return null;
+
+  const tx = await contract.burn(fromAddress, tokenId, burnAmount);
+  const receipt = await tx.wait();
+  if (!receipt) {
+    throw new Error('Membership NFT burn transaction was not mined');
+  }
+
+  return {
+    txHash: tx.hash,
+    contractAddress,
+    tokenId: tokenId.toString(),
+    amount: burnAmount.toString(),
+  };
+}

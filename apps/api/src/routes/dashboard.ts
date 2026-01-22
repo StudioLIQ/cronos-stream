@@ -7,7 +7,12 @@ import { getChannelBySlug } from './public.js';
 import { broadcastToOverlay, broadcastToDashboard, broadcastToAll } from '../sse/broker.js';
 import { getEffectiveDisplayName } from './profile.js';
 import { toYouTubeEmbedUrl } from '../lib/youtube.js';
-import { getMembershipNftContractAddress } from '../lib/membershipNft.js';
+import {
+  burnMembershipNft,
+  getMembershipNftContractAddress,
+  getMembershipTokenId,
+  isMembershipNftConfigured,
+} from '../lib/membershipNft.js';
 
 const router = Router();
 
@@ -619,19 +624,64 @@ router.post('/channels/:slug/memberships/:address/revoke', async (req, res, next
       return;
     }
 
-    if (membership.revoked) {
-      res.json({ ok: true, message: 'Already revoked' });
-      return;
+    const alreadyRevoked = membership.revoked === 1;
+
+    if (!alreadyRevoked) {
+      await execute(
+        'UPDATE memberships SET revoked = 1, updatedAt = NOW() WHERE id = ?',
+        [membership.id]
+      );
+
+      logger.info('Membership revoked', { channelId: channel.id, address: normalizedAddress });
     }
 
-    await execute(
-      'UPDATE memberships SET revoked = 1, updatedAt = NOW() WHERE id = ?',
-      [membership.id]
-    );
+    const membershipNftContract = getMembershipNftContractAddress(channel.network);
+    let nftBurn:
+      | null
+      | { txHash?: string; amount?: string; contractAddress?: string; tokenId?: string; error?: string } = null;
 
-    logger.info('Membership revoked', { channelId: channel.id, address: normalizedAddress });
+    if (membershipNftContract) {
+      if (!isMembershipNftConfigured(channel.network)) {
+        nftBurn = {
+          error: 'Membership NFT is not configured (missing address or minter key)',
+        };
+      } else {
+        try {
+          const burnResult = await burnMembershipNft({
+            network: channel.network,
+            slug,
+            fromAddress: normalizedAddress,
+          });
 
-    res.json({ ok: true });
+          nftBurn = burnResult
+            ? {
+                txHash: burnResult.txHash,
+                amount: burnResult.amount,
+                contractAddress: burnResult.contractAddress,
+                tokenId: burnResult.tokenId,
+              }
+            : {
+                amount: '0',
+                contractAddress: membershipNftContract,
+                tokenId: getMembershipTokenId(slug).toString(),
+              };
+        } catch (err) {
+          const message = (err as Error).message;
+          logger.warn('Membership NFT burn failed', {
+            channelId: channel.id,
+            address: normalizedAddress,
+            error: message,
+          });
+          nftBurn = {
+            error: message,
+            contractAddress: membershipNftContract,
+            tokenId: getMembershipTokenId(slug).toString(),
+          };
+        }
+      }
+    }
+
+    res.json({ ok: true, alreadyRevoked, nftBurn });
   } catch (err) {
     next(err);
   }
