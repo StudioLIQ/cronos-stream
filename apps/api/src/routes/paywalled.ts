@@ -20,6 +20,7 @@ import { getEffectiveDisplayName } from './profile.js';
 
 interface SupportAlertData {
   kind: 'effect' | 'qa' | 'donation' | 'membership';
+  paymentId: string;
   value: string;
   fromAddress: string;
   displayName?: string | null;
@@ -31,7 +32,8 @@ interface SupportAlertData {
 }
 
 function emitSupportAlert(slug: string, data: SupportAlertData): void {
-  broadcastToOverlay(slug, 'support.alert', data);
+  // Broadcast to all streams (overlay + dashboard) so dashboard can update in real-time
+  broadcastToAll(slug, 'support.alert', data);
 }
 
 // Simple content policy filter
@@ -358,6 +360,7 @@ router.post('/channels/:slug/trigger', async (req: Request, res: Response, next:
     // Emit unified support.alert
     emitSupportAlert(slug, {
       kind: 'effect',
+      paymentId,
       value: settleResult.value,
       fromAddress: settleResult.from,
       txHash: settleResult.txHash,
@@ -564,6 +567,7 @@ router.post('/channels/:slug/qa', async (req: Request, res: Response, next: Next
     // Emit unified support.alert
     emitSupportAlert(slug, {
       kind: 'qa',
+      paymentId,
       value: settleResult.value,
       fromAddress: settleResult.from,
       displayName: effectiveDisplayName,
@@ -752,6 +756,7 @@ router.post('/channels/:slug/donate', async (req: Request, res: Response, next: 
     // Emit unified support.alert
     emitSupportAlert(slug, {
       kind: 'donation',
+      paymentId,
       value: settleResult.value,
       fromAddress: settleResult.from,
       displayName: donationDisplayName,
@@ -975,6 +980,7 @@ router.post('/channels/:slug/memberships', async (req: Request, res: Response, n
     // Emit unified support.alert
     emitSupportAlert(slug, {
       kind: 'membership',
+      paymentId,
       value: settleResult.value,
       fromAddress: settleResult.from,
       txHash: settleResult.txHash,

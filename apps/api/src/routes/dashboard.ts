@@ -1135,6 +1135,51 @@ router.get('/channels/:slug/export/supports', async (req, res, next) => {
   }
 });
 
+// GET /api/channels/:slug/payments/:paymentId - Get payment receipt (dashboard auth)
+router.get('/channels/:slug/payments/:paymentId', async (req, res, next) => {
+  try {
+    const { slug, paymentId } = req.params;
+
+    const channel = await getChannelBySlug(slug);
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
+    const payment = await queryOne<PaymentRow>(
+      'SELECT * FROM payments WHERE channelId = ? AND paymentId = ?',
+      [channel.id, paymentId]
+    );
+
+    if (!payment) {
+      res.status(404).json({ error: 'Payment not found' });
+      return;
+    }
+
+    res.json({
+      paymentId: payment.paymentId,
+      status: payment.status,
+      kind: payment.kind,
+      scheme: payment.scheme,
+      network: payment.network,
+      asset: payment.asset,
+      fromAddress: payment.fromAddress,
+      toAddress: payment.toAddress,
+      value: payment.value,
+      nonce: payment.nonce,
+      txHash: payment.txHash,
+      blockNumber: payment.blockNumber,
+      timestamp: payment.timestamp ? Number(payment.timestamp) : null,
+      actionKey: payment.actionKey,
+      qaId: payment.qaId,
+      membershipPlanId: payment.membershipPlanId,
+      createdAt: payment.createdAt,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/channels/:slug/export/members - Export all members as CSV data (dashboard auth)
 router.get('/channels/:slug/export/members', async (req, res, next) => {
   try {

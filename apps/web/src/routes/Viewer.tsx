@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
-import { fetchChannel, fetchActions, fetchStreamStatus, triggerAction, donate, submitQA, is402Response, fetchMembershipPlans, fetchMembershipStatus, subscribeMembership, fetchMySupports, fetchChannelProfile, fetchGlobalProfileNonce, fetchChannelProfileNonce, updateGlobalProfile, updateChannelProfile } from '../lib/api';
-import type { Channel, Action, StreamStatusResponse, PaymentResponse, MembershipPlan, MembershipStatus, MembershipResponse, SupportItem, ChannelProfile } from '../lib/api';
+import { useNavigate, useParams } from 'react-router-dom';
+import { fetchChannel, fetchActions, fetchStreamStatus, triggerAction, donate, submitQA, is402Response, fetchMembershipPlans, fetchMembershipStatus, subscribeMembership, fetchMySupports, fetchChannelProfile, fetchGlobalProfileNonce, fetchChannelProfileNonce, updateGlobalProfile, updateChannelProfile, fetchPublicReceipt } from '../lib/api';
+import type { Channel, Action, StreamStatusResponse, PaymentResponse, MembershipPlan, MembershipStatus, MembershipResponse, SupportItem, ChannelProfile, PaymentReceipt } from '../lib/api';
 import { connectWallet, getSigner, isConnected, switchToCronosTestnet } from '../lib/wallet';
 import { createPaymentHeader, formatUsdcAmount } from '../lib/x402';
 import { TopNav } from '../components/TopNav';
@@ -86,6 +86,14 @@ export default function Viewer() {
   // My supports state
   const [mySupports, setMySupports] = useState<SupportItem[]>([]);
   const [mySupportsLoading, setMySupportsLoading] = useState(false);
+  const [mySupportsNextCursor, setMySupportsNextCursor] = useState<string | null>(null);
+  const [mySupportsLoadingMore, setMySupportsLoadingMore] = useState(false);
+
+  // Receipt state
+  const [expandedReceipt, setExpandedReceipt] = useState<string | null>(null);
+  const [receiptData, setReceiptData] = useState<PaymentReceipt | null>(null);
+  const [receiptLoading, setReceiptLoading] = useState(false);
+  const [receiptError, setReceiptError] = useState<string | null>(null);
 
   // Nickname state
   const [channelProfileData, setChannelProfileData] = useState<ChannelProfile | null>(null);
@@ -162,12 +170,52 @@ export default function Viewer() {
     if (!slug || !walletAddress) return;
     setMySupportsLoading(true);
     try {
-      const data = await fetchMySupports(slug, walletAddress, 10);
+      const data = await fetchMySupports(slug, walletAddress, { limit: 10 });
       setMySupports(data.items);
+      setMySupportsNextCursor(data.nextCursor);
     } catch {
       // Ignore errors
     } finally {
       setMySupportsLoading(false);
+    }
+  };
+
+  const loadMoreSupports = async () => {
+    if (!slug || !walletAddress || !mySupportsNextCursor || mySupportsLoadingMore) return;
+    setMySupportsLoadingMore(true);
+    try {
+      const data = await fetchMySupports(slug, walletAddress, { limit: 10, cursor: mySupportsNextCursor });
+      setMySupports((prev) => [...prev, ...data.items]);
+      setMySupportsNextCursor(data.nextCursor);
+    } catch {
+      // Ignore errors
+    } finally {
+      setMySupportsLoadingMore(false);
+    }
+  };
+
+  const handleViewReceipt = async (paymentId: string) => {
+    if (!slug || !walletAddress) return;
+
+    // Toggle off if already expanded
+    if (expandedReceipt === paymentId) {
+      setExpandedReceipt(null);
+      setReceiptData(null);
+      return;
+    }
+
+    setExpandedReceipt(paymentId);
+    setReceiptLoading(true);
+    setReceiptError(null);
+    setReceiptData(null);
+
+    try {
+      const data = await fetchPublicReceipt(slug, paymentId, walletAddress);
+      setReceiptData(data);
+    } catch (err) {
+      setReceiptError((err as Error).message);
+    } finally {
+      setReceiptLoading(false);
     }
   };
 
@@ -405,6 +453,8 @@ Expires At: ${nonceData.expiresAt}`;
       setPaymentState('done');
       addToast('Effect triggered successfully!', 'success');
       fireSuccess();
+      // Auto-refresh My Supports after successful payment
+      refreshMySupports();
     } catch (err) {
       const message = (err as Error).message;
       addToast(message, 'error');
@@ -455,6 +505,8 @@ Expires At: ${nonceData.expiresAt}`;
       setQaMessage('');
       addToast('Question submitted successfully!', 'success');
       fireSuccess();
+      // Auto-refresh My Supports after successful payment
+      refreshMySupports();
     } catch (err) {
       const message = (err as Error).message;
       addToast(message, 'error');
@@ -506,6 +558,8 @@ Expires At: ${nonceData.expiresAt}`;
         const status = await fetchMembershipStatus(slug, walletAddress);
         setMembershipStatus(status);
       }
+      // Auto-refresh My Supports after successful payment
+      refreshMySupports();
     } catch (err) {
       const message = (err as Error).message;
       addToast(message, 'error');
@@ -577,6 +631,8 @@ Expires At: ${nonceData.expiresAt}`;
       setDonationMessage('');
       addToast('Thank you for your donation!', 'success');
       fireSuccess();
+      // Auto-refresh My Supports after successful payment
+      refreshMySupports();
     } catch (err) {
       const message = (err as Error).message;
       addToast(message, 'error');
@@ -1133,80 +1189,175 @@ Expires At: ${nonceData.expiresAt}`;
                 {!mySupportsLoading && mySupports.length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     {mySupports.map((support) => (
-                      <div
-                        key={support.paymentId}
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-	                          alignItems: 'center',
-	                          padding: '8px',
-	                          background: 'var(--panel-2)',
-	                          borderRadius: '6px',
-	                        }}
-	                      >
-                        <div>
-	                          <span
-	                            style={{
-	                              padding: '2px 6px',
-	                              borderRadius: '4px',
-	                              fontSize: '11px',
-	                              marginRight: '8px',
-	                              color: 'var(--primary-text)',
-	                              background:
-	                                support.kind === 'donation'
-	                                  ? '#f2da00'
-	                                  : support.kind === 'qa'
-	                                  ? '#5cbffb'
-	                                  : support.kind === 'membership'
-	                                  ? 'var(--accent)'
-	                                  : '#9da5b6',
-	                            }}
-	                          >
-                            {support.kind || 'effect'}
-                          </span>
-	                          {support.timestamp && (
-	                            <span style={{ fontSize: '12px', color: 'var(--muted)' }}>
-	                              {new Date(support.timestamp * 1000).toLocaleDateString()}
-	                            </span>
-	                          )}
-	                        </div>
-	                        <div style={{ textAlign: 'right' }}>
-	                          <span style={{ fontWeight: 'bold', color: 'var(--accent)' }}>
-	                            ${formatUsdcAmount(support.value)}
-	                          </span>
-	                          {support.txHash && (
-                            <a
-	                              href={`https://explorer.cronos.org/testnet/tx/${support.txHash}`}
-	                              target="_blank"
-	                              rel="noopener noreferrer"
-	                              style={{ marginLeft: '8px', fontSize: '11px', color: 'var(--accent-text)' }}
-	                            >
-	                              tx
-	                            </a>
-	                          )}
+                      <div key={support.paymentId}>
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '8px',
+                            background: 'var(--panel-2)',
+                            borderRadius: expandedReceipt === support.paymentId ? '6px 6px 0 0' : '6px',
+                          }}
+                        >
+                          <div>
+                            <span
+                              style={{
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                fontSize: '11px',
+                                marginRight: '8px',
+                                color: 'var(--primary-text)',
+                                background:
+                                  support.kind === 'donation'
+                                    ? '#f2da00'
+                                    : support.kind === 'qa'
+                                    ? '#5cbffb'
+                                    : support.kind === 'membership'
+                                    ? 'var(--accent)'
+                                    : '#9da5b6',
+                              }}
+                            >
+                              {support.kind || 'effect'}
+                            </span>
+                            {support.timestamp && (
+                              <span style={{ fontSize: '12px', color: 'var(--muted)' }}>
+                                {new Date(support.timestamp * 1000).toLocaleDateString()}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontWeight: 'bold', color: 'var(--accent)' }}>
+                              ${formatUsdcAmount(support.value)}
+                            </span>
+                            <button
+                              onClick={() => handleViewReceipt(support.paymentId)}
+                              style={{
+                                background: 'transparent',
+                                border: '1px solid var(--border)',
+                                color: 'var(--muted)',
+                                padding: '2px 8px',
+                                fontSize: '11px',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              {expandedReceipt === support.paymentId ? 'Hide' : 'Details'}
+                            </button>
+                          </div>
                         </div>
+                        {expandedReceipt === support.paymentId && (
+                          <div
+                            style={{
+                              padding: '12px',
+                              background: 'var(--panel)',
+                              borderRadius: '0 0 6px 6px',
+                              borderTop: '1px solid var(--border)',
+                              fontSize: '12px',
+                            }}
+                          >
+                            {receiptLoading && <p style={{ color: 'var(--muted)' }}>Loading receipt...</p>}
+                            {receiptError && <p style={{ color: 'var(--danger)' }}>{receiptError}</p>}
+                            {receiptData && (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                  <span style={{ color: 'var(--muted)' }}>Status:</span>
+                                  <span style={{ color: receiptData.status === 'settled' ? 'var(--accent)' : 'var(--text)' }}>
+                                    {receiptData.status}
+                                  </span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                  <span style={{ color: 'var(--muted)' }}>Network:</span>
+                                  <span>{receiptData.network}</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                  <span style={{ color: 'var(--muted)' }}>Amount:</span>
+                                  <span>${formatUsdcAmount(receiptData.value)} USDC</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                  <span style={{ color: 'var(--muted)' }}>From:</span>
+                                  <span style={{ fontFamily: 'monospace' }}>{receiptData.fromAddress.slice(0, 10)}...</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                  <span style={{ color: 'var(--muted)' }}>To:</span>
+                                  <span style={{ fontFamily: 'monospace' }}>{receiptData.toAddress.slice(0, 10)}...</span>
+                                </div>
+                                {receiptData.txHash && (
+                                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                    <span style={{ color: 'var(--muted)' }}>Transaction:</span>
+                                    <a
+                                      href={`https://explorer.cronos.org/testnet/tx/${receiptData.txHash}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      style={{ color: 'var(--accent-text)' }}
+                                    >
+                                      {receiptData.txHash.slice(0, 10)}...
+                                    </a>
+                                  </div>
+                                )}
+                                {receiptData.blockNumber && (
+                                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                    <span style={{ color: 'var(--muted)' }}>Block:</span>
+                                    <span>{receiptData.blockNumber}</span>
+                                  </div>
+                                )}
+                                {receiptData.timestamp && (
+                                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                    <span style={{ color: 'var(--muted)' }}>Time:</span>
+                                    <span>{new Date(receiptData.timestamp * 1000).toLocaleString()}</span>
+                                  </div>
+                                )}
+                                {receiptData.actionKey && (
+                                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                    <span style={{ color: 'var(--muted)' }}>Action:</span>
+                                    <span>{receiptData.actionKey}</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
                 )}
 
-                <button
-                  onClick={refreshMySupports}
-	                  style={{
-	                    marginTop: '12px',
-	                    background: 'transparent',
-	                    color: 'var(--muted)',
-	                    border: '1px solid var(--border)',
-	                    fontSize: '12px',
-	                    width: '100%',
-	                  }}
-                >
-                  Refresh
-                </button>
+                {/* Load more button */}
+                {!mySupportsLoading && mySupportsNextCursor && (
+                  <button
+                    onClick={loadMoreSupports}
+                    disabled={mySupportsLoadingMore}
+                    style={{
+                      marginTop: '12px',
+                      background: 'transparent',
+                      color: 'var(--accent-text)',
+                      border: '1px solid var(--border)',
+                      fontSize: '12px',
+                      width: '100%',
+                    }}
+                  >
+                    {mySupportsLoadingMore ? 'Loading...' : 'Load More'}
+                  </button>
+                )}
+
+                {/* Keep existing refresh button but only show when no more items to load */}
+                {!mySupportsLoading && !mySupportsNextCursor && mySupports.length > 0 && (
+                  <button
+                    onClick={refreshMySupports}
+                    style={{
+                      marginTop: '12px',
+                      background: 'transparent',
+                      color: 'var(--muted)',
+                      border: '1px solid var(--border)',
+                      fontSize: '12px',
+                      width: '100%',
+                    }}
+                  >
+                    Refresh
+                  </button>
+                )}
               </div>
             </section>
           )}
-
           {/* Nickname Section */}
           {isConnected() && (
             <section style={{ marginTop: '24px' }}>

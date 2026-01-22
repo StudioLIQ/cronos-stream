@@ -314,9 +314,80 @@ export interface MySupportsResponse {
   nextCursor: string | null;
 }
 
-export async function fetchMySupports(slug: string, address: string, limit = 10): Promise<MySupportsResponse> {
-  const res = await fetch(`${API_BASE}/channels/${slug}/supports/me?address=${address.toLowerCase()}&limit=${limit}`);
+export interface FetchSupportsOptions {
+  limit?: number;
+  cursor?: string;
+  kind?: 'effect' | 'qa' | 'donation' | 'membership';
+}
+
+export async function fetchMySupports(
+  slug: string,
+  address: string,
+  options: FetchSupportsOptions | number = {}
+): Promise<MySupportsResponse> {
+  // Support legacy call signature: fetchMySupports(slug, address, limit)
+  const opts = typeof options === 'number' ? { limit: options } : options;
+  const { limit = 10, cursor, kind } = opts;
+
+  const params = new URLSearchParams();
+  params.set('address', address.toLowerCase());
+  params.set('limit', String(limit));
+  if (cursor) params.set('cursor', cursor);
+  if (kind) params.set('kind', kind);
+
+  const res = await fetch(`${API_BASE}/channels/${slug}/supports/me?${params.toString()}`);
   if (!res.ok) throw new Error('Failed to fetch supports');
+  return res.json();
+}
+
+// Payment Receipt types and functions
+
+export interface PaymentReceipt {
+  paymentId: string;
+  status: string;
+  kind: string | null;
+  scheme: string;
+  network: string;
+  asset: string;
+  fromAddress: string;
+  toAddress: string;
+  value: string;
+  nonce: string;
+  txHash: string | null;
+  blockNumber: string | null;
+  timestamp: number | null;
+  actionKey: string | null;
+  qaId: string | null;
+  membershipPlanId: string | null;
+  createdAt: string;
+}
+
+export async function fetchPublicReceipt(
+  slug: string,
+  paymentId: string,
+  address: string
+): Promise<PaymentReceipt> {
+  const res = await fetch(
+    `${API_BASE}/channels/${slug}/payments/${paymentId}?address=${address.toLowerCase()}`
+  );
+  if (res.status === 403) throw new Error('Access denied: not your payment');
+  if (res.status === 404) throw new Error('Payment not found');
+  if (!res.ok) throw new Error('Failed to fetch receipt');
+  return res.json();
+}
+
+export async function fetchDashboardReceipt(
+  slug: string,
+  paymentId: string,
+  token: string
+): Promise<PaymentReceipt> {
+  const res = await fetch(`${API_BASE}/channels/${slug}/payments/${paymentId}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  if (res.status === 404) throw new Error('Payment not found');
+  if (!res.ok) throw new Error('Failed to fetch receipt');
   return res.json();
 }
 

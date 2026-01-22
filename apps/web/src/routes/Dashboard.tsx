@@ -39,6 +39,39 @@ interface QaUpdatedEvent {
   status: string;
 }
 
+interface SupportAlertEvent {
+  kind: 'effect' | 'qa' | 'donation' | 'membership';
+  paymentId: string;
+  value: string;
+  fromAddress: string;
+  displayName?: string | null;
+  txHash: string;
+  timestamp: number;
+  actionKey?: string;
+  qaId?: string;
+  membershipPlanId?: string;
+}
+
+interface PaymentReceipt {
+  paymentId: string;
+  status: string;
+  kind: string | null;
+  scheme: string;
+  network: string;
+  asset: string;
+  fromAddress: string;
+  toAddress: string;
+  value: string;
+  nonce: string;
+  txHash: string | null;
+  blockNumber: string | null;
+  timestamp: number | null;
+  actionKey: string | null;
+  qaId: string | null;
+  membershipPlanId: string | null;
+  createdAt: string;
+}
+
 interface SupportItem {
   paymentId: string;
   kind: string | null;
@@ -143,6 +176,15 @@ export default function Dashboard() {
     queuedQA: number;
     totalTransactions: number;
   } | null>(null);
+
+  // Recent support alerts (for toast)
+  const [recentAlerts, setRecentAlerts] = useState<SupportAlertEvent[]>([]);
+
+  // Receipt state for wallet lookup
+  const [expandedReceipt, setExpandedReceipt] = useState<string | null>(null);
+  const [receiptData, setReceiptData] = useState<PaymentReceipt | null>(null);
+  const [receiptLoading, setReceiptLoading] = useState(false);
+  const [receiptError, setReceiptError] = useState<string | null>(null);
 
   const fetchItems = useCallback(async () => {
     if (!slug || !token) return;
@@ -595,6 +637,19 @@ export default function Dashboard() {
             item.id === event.qaId ? { ...item, status: event.status } : item
           ).filter((item) => item.status === filter)
         );
+      } else if (eventName === 'support.alert') {
+        const event = data as SupportAlertEvent;
+        // Add to recent alerts (for toast display)
+        setRecentAlerts((prev) => [event, ...prev.slice(0, 4)]);
+        // Auto-clear alert after 5 seconds
+        setTimeout(() => {
+          setRecentAlerts((prev) => prev.filter((a) => a.paymentId !== event.paymentId));
+        }, 5000);
+        // Refresh stats and leaderboard
+        fetchStats();
+        if (activeTab === 'supports') {
+          fetchLeaderboard();
+        }
       }
     });
 
@@ -696,6 +751,40 @@ export default function Dashboard() {
   const handleWalletLookup = () => {
     if (walletLookup && /^0x[a-fA-F0-9]{40}$/.test(walletLookup)) {
       fetchWalletSupports(walletLookup);
+    }
+  };
+
+  const handleViewReceipt = async (paymentId: string) => {
+    if (!slug || !token) return;
+
+    // Toggle off if already expanded
+    if (expandedReceipt === paymentId) {
+      setExpandedReceipt(null);
+      setReceiptData(null);
+      return;
+    }
+
+    setExpandedReceipt(paymentId);
+    setReceiptLoading(true);
+    setReceiptError(null);
+    setReceiptData(null);
+
+    try {
+      const res = await fetch(`${API_BASE}/channels/${slug}/payments/${paymentId}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to fetch receipt');
+      }
+      const data = await res.json();
+      setReceiptData(data);
+    } catch (err) {
+      setReceiptError((err as Error).message);
+    } finally {
+      setReceiptLoading(false);
     }
   };
 
@@ -849,6 +938,39 @@ export default function Dashboard() {
           <button onClick={() => setError(null)} style={{ marginTop: '8px', background: '#fff', color: '#000' }}>
             Dismiss
           </button>
+        </div>
+      )}
+
+      {/* Recent Support Alerts */}
+      {recentAlerts.length > 0 && (
+        <div style={{ marginBottom: '16px' }}>
+          {recentAlerts.map((alert) => (
+            <div
+              key={alert.paymentId}
+              style={{
+                padding: '12px 16px',
+                marginBottom: '8px',
+                background: alert.kind === 'donation' ? 'linear-gradient(90deg, #f2da00, #00f889)' : 'var(--accent)',
+                borderRadius: '8px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                animation: 'slideIn 0.3s ease-out',
+              }}
+            >
+              <div>
+                <span style={{ fontWeight: 'bold', color: 'var(--primary-text)' }}>
+                  New {alert.kind}!
+                </span>
+                <span style={{ marginLeft: '8px', color: 'var(--primary-text)' }}>
+                  {alert.displayName || `${alert.fromAddress.slice(0, 6)}...${alert.fromAddress.slice(-4)}`}
+                </span>
+              </div>
+              <span style={{ fontWeight: 'bold', color: 'var(--primary-text)' }}>
+                ${formatUSDC(alert.value)}
+              </span>
+            </div>
+          ))}
         </div>
       )}
 
@@ -1214,59 +1336,141 @@ export default function Dashboard() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '400px', overflowY: 'auto' }}>
               {walletSupports.map((support) => (
-                <div
-                  key={support.paymentId}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    padding: '12px',
-                    background: 'var(--panel-2)',
-                    borderRadius: '8px',
-                  }}
-                >
-                  <div>
-                    <p style={{ fontWeight: 500, marginBottom: '4px' }}>
-                      <span
+                <div key={support.paymentId}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '12px',
+                      background: 'var(--panel-2)',
+                      borderRadius: expandedReceipt === support.paymentId ? '8px 8px 0 0' : '8px',
+                    }}
+                  >
+                    <div>
+                      <p style={{ fontWeight: 500, marginBottom: '4px' }}>
+                        <span
+                          style={{
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            fontSize: '11px',
+                            marginRight: '8px',
+                            color: 'var(--primary-text)',
+                            background:
+                              support.kind === 'donation'
+                                ? '#f2da00'
+                                : support.kind === 'qa'
+                                ? '#5cbffb'
+                                : support.kind === 'membership'
+                                ? 'var(--accent)'
+                                : '#9da5b6',
+                          }}
+                        >
+                          {support.kind || 'unknown'}
+                        </span>
+                        {support.actionKey || support.qaId?.slice(0, 8) || ''}
+                      </p>
+                      {support.timestamp && (
+                        <p style={{ fontSize: '12px', color: 'var(--muted)' }}>
+                          {new Date(support.timestamp * 1000).toLocaleString()}
+                        </p>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <p style={{ fontWeight: 'bold', color: 'var(--accent)' }}>
+                        ${formatUSDC(support.value)}
+                      </p>
+                      <button
+                        onClick={() => handleViewReceipt(support.paymentId)}
                         style={{
-                          padding: '2px 6px',
-                          borderRadius: '4px',
+                          background: 'transparent',
+                          border: '1px solid var(--border)',
+                          color: 'var(--muted)',
+                          padding: '4px 8px',
                           fontSize: '11px',
-                          marginRight: '8px',
-                          color: 'var(--primary-text)',
-                          background:
-                            support.kind === 'donation'
-                              ? '#f2da00'
-                              : support.kind === 'qa'
-                              ? '#5cbffb'
-                              : '#9da5b6',
+                          cursor: 'pointer',
                         }}
                       >
-                        {support.kind || 'unknown'}
-                      </span>
-                      {support.actionKey || support.qaId?.slice(0, 8) || ''}
-                    </p>
-                    {support.timestamp && (
-                      <p style={{ fontSize: '12px', color: 'var(--muted)' }}>
-                        {new Date(support.timestamp * 1000).toLocaleString()}
-                      </p>
-                    )}
+                        {expandedReceipt === support.paymentId ? 'Hide' : 'Receipt'}
+                      </button>
+                    </div>
                   </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <p style={{ fontWeight: 'bold', color: 'var(--accent)' }}>
-                      ${formatUSDC(support.value)}
-                    </p>
-                    {support.txHash && (
-                      <a
-                        href={`https://cronos.org/explorer/testnet3/tx/${support.txHash}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ fontSize: '11px', color: 'var(--accent-text)' }}
-                      >
-                        View tx
-                      </a>
-                    )}
-                  </div>
+                  {/* Receipt Details Panel */}
+                  {expandedReceipt === support.paymentId && (
+                    <div
+                      style={{
+                        padding: '12px',
+                        background: 'var(--panel)',
+                        borderRadius: '0 0 8px 8px',
+                        borderTop: '1px solid var(--border)',
+                        fontSize: '12px',
+                      }}
+                    >
+                      {receiptLoading && <p style={{ color: 'var(--muted)' }}>Loading receipt...</p>}
+                      {receiptError && <p style={{ color: 'var(--danger)' }}>{receiptError}</p>}
+                      {receiptData && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: 'var(--muted)' }}>Payment ID:</span>
+                            <span style={{ fontFamily: 'monospace', fontSize: '10px' }}>{receiptData.paymentId.slice(0, 16)}...</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: 'var(--muted)' }}>Status:</span>
+                            <span style={{ color: receiptData.status === 'settled' ? 'var(--accent)' : 'var(--text)' }}>
+                              {receiptData.status}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: 'var(--muted)' }}>Network:</span>
+                            <span>{receiptData.network}</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: 'var(--muted)' }}>Amount:</span>
+                            <span>${formatUSDC(receiptData.value)} USDC</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: 'var(--muted)' }}>From:</span>
+                            <span style={{ fontFamily: 'monospace' }}>{receiptData.fromAddress.slice(0, 10)}...</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: 'var(--muted)' }}>To:</span>
+                            <span style={{ fontFamily: 'monospace' }}>{receiptData.toAddress.slice(0, 10)}...</span>
+                          </div>
+                          {receiptData.txHash && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ color: 'var(--muted)' }}>Transaction:</span>
+                              <a
+                                href={`https://explorer.cronos.org/testnet/tx/${receiptData.txHash}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{ color: 'var(--accent-text)' }}
+                              >
+                                {receiptData.txHash.slice(0, 10)}...
+                              </a>
+                            </div>
+                          )}
+                          {receiptData.blockNumber && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ color: 'var(--muted)' }}>Block:</span>
+                              <span>{receiptData.blockNumber}</span>
+                            </div>
+                          )}
+                          {receiptData.timestamp && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ color: 'var(--muted)' }}>Time:</span>
+                              <span>{new Date(receiptData.timestamp * 1000).toLocaleString()}</span>
+                            </div>
+                          )}
+                          {receiptData.actionKey && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ color: 'var(--muted)' }}>Action:</span>
+                              <span>{receiptData.actionKey}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
