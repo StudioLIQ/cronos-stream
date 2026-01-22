@@ -13,6 +13,7 @@ import { ActionButtonSkeleton, Skeleton } from '../components/Skeleton';
 import { EmptyState } from '../components/EmptyState';
 import { useConfetti } from '../hooks/useConfetti';
 import { useWallet } from '../contexts/WalletContext';
+import { formatWalletSignatureError } from '../lib/walletErrors';
 
 type PaymentState = 'idle' | 'needs_payment' | 'signing' | 'settling' | 'done' | 'error';
 
@@ -296,7 +297,7 @@ Expires At: ${nonceData.expiresAt}`;
         setChannelNicknameInput(profile.channelDisplayNameOverride || '');
       }
     } catch (err) {
-      setNicknameError((err as Error).message);
+      setNicknameError(formatWalletSignatureError(err));
     } finally {
       setNicknameSaving(false);
     }
@@ -345,7 +346,7 @@ Expires At: ${nonceData.expiresAt}`;
       setGlobalNicknameInput(profile.globalDisplayName || '');
       setChannelNicknameInput(profile.channelDisplayNameOverride || '');
     } catch (err) {
-      setNicknameError((err as Error).message);
+      setNicknameError(formatWalletSignatureError(err));
     } finally {
       setNicknameSaving(false);
     }
@@ -392,7 +393,7 @@ Expires At: ${nonceData.expiresAt}`;
       setGlobalNicknameInput(profile.globalDisplayName || '');
       setChannelNicknameInput(profile.channelDisplayNameOverride || '');
     } catch (err) {
-      setNicknameError((err as Error).message);
+      setNicknameError(formatWalletSignatureError(err));
     } finally {
       setNicknameSaving(false);
     }
@@ -443,7 +444,7 @@ Expires At: ${nonceData.expiresAt}`;
       // Auto-refresh My Supports after successful payment
       refreshMySupports();
     } catch (err) {
-      const message = (err as Error).message;
+      const message = formatWalletSignatureError(err);
       addToast(message, 'error');
       setError(message);
       setPaymentState('error');
@@ -495,7 +496,7 @@ Expires At: ${nonceData.expiresAt}`;
       // Auto-refresh My Supports after successful payment
       refreshMySupports();
     } catch (err) {
-      const message = (err as Error).message;
+      const message = formatWalletSignatureError(err);
       addToast(message, 'error');
       setError(message);
       setQaState('error');
@@ -548,7 +549,7 @@ Expires At: ${nonceData.expiresAt}`;
       // Auto-refresh My Supports after successful payment
       refreshMySupports();
     } catch (err) {
-      const message = (err as Error).message;
+      const message = formatWalletSignatureError(err);
       addToast(message, 'error');
       setError(message);
       setMembershipState('error');
@@ -621,7 +622,7 @@ Expires At: ${nonceData.expiresAt}`;
       // Auto-refresh My Supports after successful payment
       refreshMySupports();
     } catch (err) {
-      const message = (err as Error).message;
+      const message = formatWalletSignatureError(err);
       addToast(message, 'error');
       setError(message);
       setDonationState('error');

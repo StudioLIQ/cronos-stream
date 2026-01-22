@@ -1,5 +1,6 @@
 import { JsonRpcSigner, randomBytes, hexlify } from 'ethers';
 import type { PaymentRequirements } from './api';
+import { formatWalletSignatureError } from './walletErrors';
 
 const NETWORKS: Record<string, { chainId: number; tokenName: string; tokenVersion: string }> = {
   'cronos-testnet': {
@@ -93,7 +94,12 @@ export async function createPaymentHeader(
   };
 
   // Sign the typed data
-  const signature = await signer.signTypedData(domain, types, message);
+  let signature: string;
+  try {
+    signature = await signer.signTypedData(domain, types, message);
+  } catch (err) {
+    throw new Error(formatWalletSignatureError(err));
+  }
 
   // Build payment header
   const paymentHeader: PaymentHeader = {
