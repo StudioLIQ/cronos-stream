@@ -1,7 +1,30 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { fetchChannel, fetchActions, fetchStreamStatus, triggerAction, donate, submitQA, is402Response, fetchMembershipPlans, fetchMembershipStatus, subscribeMembership, fetchMySupports, fetchChannelProfile, fetchGlobalProfileNonce, fetchChannelProfileNonce, updateGlobalProfile, updateChannelProfile, fetchPublicReceipt } from '../lib/api';
-import type { Channel, Action, StreamStatusResponse, PaymentResponse, MembershipPlan, MembershipStatus, MembershipResponse, SupportItem, ChannelProfile, PaymentReceipt } from '../lib/api';
+import {
+  fetchChannel,
+  fetchActions,
+  fetchStreamStatus,
+  triggerAction,
+  donate,
+  submitQA,
+  is402Response,
+  fetchMembershipPlans,
+  fetchMembershipStatus,
+  subscribeMembership,
+  fetchMySupports,
+  fetchPublicReceipt,
+} from '../lib/api';
+import type {
+  Channel,
+  Action,
+  StreamStatusResponse,
+  PaymentResponse,
+  MembershipPlan,
+  MembershipStatus,
+  MembershipResponse,
+  SupportItem,
+  PaymentReceipt,
+} from '../lib/api';
 import { createPaymentHeader, formatUsdcAmount } from '../lib/x402';
 import { TopNav } from '../components/TopNav';
 import { OverlayLayer } from '../components/OverlayLayer';
@@ -16,6 +39,7 @@ import { useWallet } from '../contexts/WalletContext';
 import { formatWalletSignatureError } from '../lib/walletErrors';
 
 type PaymentState = 'idle' | 'needs_payment' | 'signing' | 'settling' | 'done' | 'error';
+type SupportKind = 'donation' | 'qa';
 
 interface PaymentResult {
   txHash: string;
@@ -57,12 +81,13 @@ export default function Viewer() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Donation state
+  // Support state (Donate + Q&A)
+  const [supportKind, setSupportKind] = useState<SupportKind>('donation');
+  const [supportDisplayName, setSupportDisplayName] = useState('');
+  const [supportMessage, setSupportMessage] = useState('');
+  const [supportState, setSupportState] = useState<PaymentState>('idle');
+  const [supportResult, setSupportResult] = useState<PaymentResult | null>(null);
   const [donationAmount, setDonationAmount] = useState('0.05');
-  const [donationDisplayName, setDonationDisplayName] = useState('');
-  const [donationMessage, setDonationMessage] = useState('');
-  const [donationState, setDonationState] = useState<PaymentState>('idle');
-  const [donationResult, setDonationResult] = useState<PaymentResult | null>(null);
   const [donationAmountError, setDonationAmountError] = useState<string | null>(null);
 
   // Action trigger state
@@ -70,12 +95,13 @@ export default function Viewer() {
   const [lastResult, setLastResult] = useState<PaymentResult | null>(null);
   const [activeAction, setActiveAction] = useState<string | null>(null);
 
-  // Q&A state
-  const [qaMessage, setQaMessage] = useState('');
-  const [qaDisplayName, setQaDisplayName] = useState('');
   const [qaTier, setQaTier] = useState<'normal' | 'priority'>('normal');
-  const [qaState, setQaState] = useState<PaymentState>('idle');
-  const [qaResult, setQaResult] = useState<PaymentResult | null>(null);
+
+  useEffect(() => {
+    setSupportState('idle');
+    setSupportResult(null);
+    setDonationAmountError(null);
+  }, [supportKind]);
 
   // Membership state
   const [membershipPlans, setMembershipPlans] = useState<MembershipPlan[]>([]);
@@ -95,14 +121,6 @@ export default function Viewer() {
   const [receiptData, setReceiptData] = useState<PaymentReceipt | null>(null);
   const [receiptLoading, setReceiptLoading] = useState(false);
   const [receiptError, setReceiptError] = useState<string | null>(null);
-
-  // Nickname state
-  const [channelProfileData, setChannelProfileData] = useState<ChannelProfile | null>(null);
-  const [nicknameLoading, setNicknameLoading] = useState(false);
-  const [globalNicknameInput, setGlobalNicknameInput] = useState('');
-  const [channelNicknameInput, setChannelNicknameInput] = useState('');
-  const [nicknameSaving, setNicknameSaving] = useState(false);
-  const [nicknameError, setNicknameError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!slug) return;
@@ -224,178 +242,12 @@ export default function Viewer() {
     refreshMySupports();
   }, [slug, walletAddress]);
 
-  // Fetch profile when wallet is connected
-  useEffect(() => {
-    if (!slug || !walletAddress) {
-      setChannelProfileData(null);
-      return;
-    }
-
-    setNicknameLoading(true);
-    fetchChannelProfile(slug, walletAddress)
-      .then((profile) => {
-        setChannelProfileData(profile);
-        setGlobalNicknameInput(profile.globalDisplayName || '');
-        setChannelNicknameInput(profile.channelDisplayNameOverride || '');
-      })
-      .catch(() => {
-        // Ignore errors
-      })
-      .finally(() => {
-        setNicknameLoading(false);
-      });
-  }, [slug, walletAddress]);
-
   const handleCopyTxHash = async (txHash: string) => {
     const success = await copyToClipboard(txHash);
     if (success) {
       addToast('Transaction hash copied to clipboard', 'success');
     } else {
       addToast('Failed to copy to clipboard', 'error');
-    }
-  };
-
-  const handleSaveGlobalNickname = async () => {
-    if (!walletAddress || !globalNicknameInput.trim()) return;
-    setNicknameSaving(true);
-    setNicknameError(null);
-
-    try {
-      // Get nonce
-      const nonceData = await fetchGlobalProfileNonce(walletAddress);
-
-      // Sign message
-      const signer = walletSigner;
-      if (!signer) throw new Error('Wallet not connected');
-
-      const message = `Stream402 Global Profile Update
-
-Address: ${walletAddress.toLowerCase()}
-Display Name: ${globalNicknameInput.trim()}
-Scope: global
-Nonce: ${nonceData.nonce}
-Issued At: ${nonceData.issuedAt}
-Expires At: ${nonceData.expiresAt}`;
-
-      const signature = await signer.signMessage(message);
-
-      // Submit update
-      await updateGlobalProfile(
-        walletAddress,
-        globalNicknameInput.trim(),
-        nonceData.nonce,
-        nonceData.issuedAt,
-        nonceData.expiresAt,
-        signature
-      );
-
-      // Refresh profile
-      if (slug) {
-        const profile = await fetchChannelProfile(slug, walletAddress);
-        setChannelProfileData(profile);
-        setGlobalNicknameInput(profile.globalDisplayName || '');
-        setChannelNicknameInput(profile.channelDisplayNameOverride || '');
-      }
-    } catch (err) {
-      setNicknameError(formatWalletSignatureError(err));
-    } finally {
-      setNicknameSaving(false);
-    }
-  };
-
-  const handleSaveChannelNickname = async () => {
-    if (!walletAddress || !slug || !channelNicknameInput.trim()) return;
-    setNicknameSaving(true);
-    setNicknameError(null);
-
-    try {
-      // Get nonce
-      const nonceData = await fetchChannelProfileNonce(slug, walletAddress);
-
-      // Sign message
-      const signer = walletSigner;
-      if (!signer) throw new Error('Wallet not connected');
-
-      const message = `Stream402 Channel Profile Update
-
-Address: ${walletAddress.toLowerCase()}
-Channel: ${slug}
-Action: set
-Display Name Override: ${channelNicknameInput.trim()}
-Nonce: ${nonceData.nonce}
-Issued At: ${nonceData.issuedAt}
-Expires At: ${nonceData.expiresAt}`;
-
-      const signature = await signer.signMessage(message);
-
-      // Submit update
-      await updateChannelProfile(
-        slug,
-        walletAddress,
-        'set',
-        nonceData.nonce,
-        nonceData.issuedAt,
-        nonceData.expiresAt,
-        signature,
-        channelNicknameInput.trim()
-      );
-
-      // Refresh profile
-      const profile = await fetchChannelProfile(slug, walletAddress);
-      setChannelProfileData(profile);
-      setGlobalNicknameInput(profile.globalDisplayName || '');
-      setChannelNicknameInput(profile.channelDisplayNameOverride || '');
-    } catch (err) {
-      setNicknameError(formatWalletSignatureError(err));
-    } finally {
-      setNicknameSaving(false);
-    }
-  };
-
-  const handleClearChannelNickname = async () => {
-    if (!walletAddress || !slug) return;
-    setNicknameSaving(true);
-    setNicknameError(null);
-
-    try {
-      // Get nonce
-      const nonceData = await fetchChannelProfileNonce(slug, walletAddress);
-
-      // Sign message
-      const signer = walletSigner;
-      if (!signer) throw new Error('Wallet not connected');
-
-      const message = `Stream402 Channel Profile Update
-
-Address: ${walletAddress.toLowerCase()}
-Channel: ${slug}
-Action: clear
-Nonce: ${nonceData.nonce}
-Issued At: ${nonceData.issuedAt}
-Expires At: ${nonceData.expiresAt}`;
-
-      const signature = await signer.signMessage(message);
-
-      // Submit update
-      await updateChannelProfile(
-        slug,
-        walletAddress,
-        'clear',
-        nonceData.nonce,
-        nonceData.issuedAt,
-        nonceData.expiresAt,
-        signature
-      );
-
-      // Refresh profile
-      const profile = await fetchChannelProfile(slug, walletAddress);
-      setChannelProfileData(profile);
-      setGlobalNicknameInput(profile.globalDisplayName || '');
-      setChannelNicknameInput(profile.channelDisplayNameOverride || '');
-    } catch (err) {
-      setNicknameError(formatWalletSignatureError(err));
-    } finally {
-      setNicknameSaving(false);
     }
   };
 
@@ -451,17 +303,45 @@ Expires At: ${nonceData.expiresAt}`;
     }
   };
 
-  const handleSubmitQA = async () => {
-    if (!slug || !qaMessage.trim()) return;
-    setQaState('needs_payment');
-    setQaResult(null);
+  const handleSubmitSupport = async () => {
+    if (!slug) return;
+
+    setSupportState('needs_payment');
+    setSupportResult(null);
+    setDonationAmountError(null);
+
+    const kind = supportKind;
+    const displayName = supportDisplayName.trim() || null;
+    const message = supportMessage.trim();
+
+    let donationBaseUnits: string | null = null;
+
+    if (kind === 'donation') {
+      const parsed = parseUsdcToBaseUnits(donationAmount);
+      if (!parsed.ok) {
+        setDonationAmountError(parsed.error);
+        setSupportState('idle');
+        addToast(parsed.error, 'warning');
+        return;
+      }
+      donationBaseUnits = parsed.baseUnits;
+    }
+
+    if (kind === 'qa' && !message) {
+      setSupportState('idle');
+      addToast('Please enter a question.', 'warning');
+      return;
+    }
 
     try {
       // First request without payment
-      let result = await submitQA(slug, qaMessage.trim(), qaDisplayName.trim() || null, qaTier);
+      let result =
+        kind === 'donation'
+          ? await donate(slug, donationBaseUnits as string, message || null, displayName)
+          : await submitQA(slug, message, displayName, qaTier);
 
       if (is402Response(result)) {
-        setQaState('signing');
+        setSupportState('signing');
         addToast('Please sign the transaction in your wallet', 'info');
 
         const signer = walletSigner;
@@ -472,11 +352,14 @@ Expires At: ${nonceData.expiresAt}`;
         // Create payment header
         const paymentHeader = await createPaymentHeader(signer, result.paymentRequirements);
 
-        setQaState('settling');
+        setSupportState('settling');
         addToast('Settling payment on-chain...', 'info');
 
         // Retry with payment
-        result = await submitQA(slug, qaMessage.trim(), qaDisplayName.trim() || null, qaTier, paymentHeader);
+        result =
+          kind === 'donation'
+            ? await donate(slug, donationBaseUnits as string, message || null, displayName, paymentHeader)
+            : await submitQA(slug, message, displayName, qaTier, paymentHeader);
 
         if (is402Response(result)) {
           throw new Error('Payment still required after signing');
@@ -484,14 +367,14 @@ Expires At: ${nonceData.expiresAt}`;
       }
 
       const paymentResult = result as PaymentResponse;
-      setQaResult({
+      setSupportResult({
         txHash: paymentResult.payment.txHash,
         from: paymentResult.payment.from,
         value: paymentResult.payment.value,
       });
-      setQaState('done');
-      setQaMessage('');
-      addToast('Question submitted successfully!', 'success');
+      setSupportState('done');
+      setSupportMessage('');
+      addToast(kind === 'donation' ? 'Thank you for your donation!' : 'Question submitted successfully!', 'success');
       fireSuccess();
       // Auto-refresh My Supports after successful payment
       refreshMySupports();
@@ -499,7 +382,7 @@ Expires At: ${nonceData.expiresAt}`;
       const message = formatWalletSignatureError(err);
       addToast(message, 'error');
       setError(message);
-      setQaState('error');
+      setSupportState('error');
     }
   };
 
@@ -556,117 +439,52 @@ Expires At: ${nonceData.expiresAt}`;
     }
   };
 
-  const handleDonate = async () => {
-    if (!slug) return;
-
-    setDonationState('needs_payment');
-    setDonationResult(null);
-    setDonationAmountError(null);
-
-    const parsed = parseUsdcToBaseUnits(donationAmount);
-    if (!parsed.ok) {
-      setDonationAmountError(parsed.error);
-      setDonationState('idle');
-      addToast(parsed.error, 'warning');
-      return;
-    }
-
-    try {
-      // First request without payment
-      let result = await donate(
-        slug,
-        parsed.baseUnits,
-        donationMessage.trim() || null,
-        donationDisplayName.trim() || null
-      );
-
-      if (is402Response(result)) {
-        setDonationState('signing');
-        addToast('Please sign the transaction in your wallet', 'info');
-
-        const signer = walletSigner;
-        if (!signer) {
-          throw new Error('Wallet not connected');
-        }
-
-        // Create payment header
-        const paymentHeader = await createPaymentHeader(signer, result.paymentRequirements);
-
-        setDonationState('settling');
-        addToast('Settling payment on-chain...', 'info');
-
-        // Retry with payment
-        result = await donate(
-          slug,
-          parsed.baseUnits,
-          donationMessage.trim() || null,
-          donationDisplayName.trim() || null,
-          paymentHeader
-        );
-
-        if (is402Response(result)) {
-          throw new Error('Payment still required after signing');
-        }
-      }
-
-      const paymentResult = result as PaymentResponse;
-      setDonationResult({
-        txHash: paymentResult.payment.txHash,
-        from: paymentResult.payment.from,
-        value: paymentResult.payment.value,
-      });
-      setDonationState('done');
-      setDonationMessage('');
-      addToast('Thank you for your donation!', 'success');
-      fireSuccess();
-      // Auto-refresh My Supports after successful payment
-      refreshMySupports();
-    } catch (err) {
-      const message = formatWalletSignatureError(err);
-      addToast(message, 'error');
-      setError(message);
-      setDonationState('error');
-    }
-  };
-
-  if (loading) {
-    return (
-      <div>
-        <TopNav />
-        <div className="container">
-          <header style={{ marginBottom: '24px' }}>
-            <Skeleton width={200} height={28} style={{ marginBottom: 8 }} />
-            <Skeleton width={140} height={14} />
-          </header>
-          <div className="viewer-grid">
-            <div className="viewer-main">
-              <section>
-                <Skeleton width={60} height={22} style={{ marginBottom: 12 }} />
-                <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                  <Skeleton height={0} style={{ paddingTop: '56.25%' }} borderRadius={0} />
-                </div>
-              </section>
-              <section style={{ marginTop: '24px' }}>
-                <Skeleton width={80} height={22} style={{ marginBottom: 12 }} />
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '12px' }}>
-                  <ActionButtonSkeleton />
-                  <ActionButtonSkeleton />
-                  <ActionButtonSkeleton />
-                  <ActionButtonSkeleton />
-                </div>
-              </section>
-            </div>
-            <aside className="viewer-side">
-              <section>
-                <Skeleton width={100} height={22} style={{ marginBottom: 12 }} />
-                <div className="card">
-                  <Skeleton height={100} />
-                </div>
-              </section>
-            </aside>
-          </div>
-        </div>
-      </div>
+	  if (loading) {
+	    return (
+	      <div>
+	        <TopNav />
+	        <div className="container">
+	          <header style={{ marginBottom: '24px' }}>
+	            <Skeleton width={200} height={28} style={{ marginBottom: 8 }} />
+	            <Skeleton width={140} height={14} />
+	          </header>
+	          <div className="viewer-grid">
+	            <div className="viewer-main">
+	              <section>
+	                <Skeleton width={60} height={22} style={{ marginBottom: 12 }} />
+	                <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+	                  <Skeleton height={0} style={{ paddingTop: '56.25%' }} borderRadius={0} />
+	                </div>
+	              </section>
+	              {isWalletConnected && (
+	                <section style={{ marginTop: '24px' }}>
+	                  <Skeleton width={110} height={22} style={{ marginBottom: 12 }} />
+	                  <div className="card">
+	                    <Skeleton height={110} />
+	                  </div>
+	                </section>
+	              )}
+	            </div>
+	            <aside className="viewer-side">
+	              <section>
+	                <Skeleton width={80} height={22} style={{ marginBottom: 12 }} />
+	                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '12px' }}>
+	                  <ActionButtonSkeleton />
+	                  <ActionButtonSkeleton />
+	                  <ActionButtonSkeleton />
+	                  <ActionButtonSkeleton />
+	                </div>
+	              </section>
+	              <section style={{ marginTop: '24px' }}>
+	                <Skeleton width={100} height={22} style={{ marginBottom: 12 }} />
+	                <div className="card">
+	                  <Skeleton height={100} />
+	                </div>
+	              </section>
+	            </aside>
+	          </div>
+	        </div>
+	      </div>
     );
   }
 
@@ -715,12 +533,12 @@ Expires At: ${nonceData.expiresAt}`;
 	        </div>
 	      )}
 
-      <div className="viewer-grid">
-        <div className="viewer-main">
-          <section>
-            <h2>Live</h2>
-            <div className="card" style={{ padding: 0, overflow: 'hidden', marginTop: '12px' }}>
-              <div style={{ position: 'relative', paddingTop: '56.25%' }}>
+	      <div className="viewer-grid">
+	        <div className="viewer-main">
+	          <section>
+	            <h2>Live</h2>
+	            <div className="card" style={{ padding: 0, overflow: 'hidden', marginTop: '12px' }}>
+	              <div style={{ position: 'relative', paddingTop: '56.25%' }}>
                 {autoplayUrl ? (
                   <iframe
                     src={autoplayUrl}
@@ -761,98 +579,201 @@ Expires At: ${nonceData.expiresAt}`;
 	                    </div>
 	                  </div>
 	                )}
-                {slug && <OverlayLayer slug={slug} />}
-              </div>
-            </div>
-          </section>
+	                {slug && <OverlayLayer slug={slug} />}
+	              </div>
+	            </div>
+	          </section>
 
-	          <section style={{ marginTop: '24px' }}>
-	            <h2>Effects</h2>
-	            <p style={{ marginTop: '8px', color: 'var(--muted)', fontSize: '14px' }}>
-	              Effects appear on the streamer overlay:{' '}
-	              <a href={`/o/${slug}`} style={{ color: 'var(--accent-text)' }}>
-	                /o/{slug}
-	              </a>
-	            </p>
-            {actions.length === 0 ? (
-              <div className="card" style={{ marginTop: '12px' }}>
-                <EmptyState
-                  icon="🎬"
-                  title="No effects available"
-                  description="This channel hasn't set up any paid effects yet. Check back later or try the donation or Q&A features."
-                />
-              </div>
-            ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '12px', marginTop: '12px' }}>
-              {actions.map((action) => (
-                <button
-                  key={action.actionKey}
-                  onClick={() => handleTriggerAction(action.actionKey)}
-                  disabled={!isWalletConnected || paymentState === 'signing' || paymentState === 'settling'}
-	                  style={{
-	                    padding: '16px',
-	                    background:
-	                      activeAction === action.actionKey && paymentState !== 'idle' && paymentState !== 'done'
-	                        ? '#f59e0b'
-	                        : 'var(--panel-2)',
-	                    color:
-	                      activeAction === action.actionKey && paymentState !== 'idle' && paymentState !== 'done'
-	                        ? 'var(--primary-text)'
-	                        : 'var(--text)',
-	                    border: '1px solid var(--border)',
-	                    display: 'flex',
-	                    flexDirection: 'column',
-	                    alignItems: 'center',
-	                    gap: '8px',
-	                  }}
-                >
-                  <span style={{ fontSize: '24px' }}>
-                    {action.type === 'sticker' ? '🖼️' : action.type === 'sound' ? '🔊' : '⚡'}
-                  </span>
-	                  <span>{action.actionKey}</span>
-	                  <span style={{ fontSize: '12px', color: 'var(--muted)' }}>
-	                    ${formatUsdcAmount(action.priceBaseUnits)} USDC
-	                  </span>
-	                </button>
-              ))}
-            </div>
-            )}
+	          {/* My Supports Section */}
+	          {isWalletConnected && (
+	            <section style={{ marginTop: '24px' }}>
+	              <h2>My Supports</h2>
+	              <div className="card" style={{ marginTop: '12px' }}>
+	                {mySupportsLoading && <p style={{ color: 'var(--muted)' }}>Loading...</p>}
 
-            {paymentState !== 'idle' && (
-              <div className="card" style={{ marginTop: '16px' }}>
-                <p>
-                  {paymentState === 'needs_payment' && 'Requesting payment...'}
-                  {paymentState === 'signing' && 'Please sign the transaction...'}
-                  {paymentState === 'settling' && 'Settling payment...'}
-                  {paymentState === 'done' && lastResult && (
-                    <>
-                      Success! TX:{' '}
-	                      <a
-	                        href={`https://explorer.cronos.org/testnet/tx/${lastResult.txHash}`}
-	                        target="_blank"
-	                        rel="noopener noreferrer"
-	                        style={{ color: 'var(--accent-text)' }}
-	                      >
-	                        {lastResult.txHash.slice(0, 10)}...
-	                      </a>
-	                      <button
-	                        onClick={() => handleCopyTxHash(lastResult.txHash)}
-	                        style={{ marginLeft: '8px', background: 'transparent', color: 'var(--muted)', border: 'none', cursor: 'pointer', fontSize: '12px' }}
-	                      >
-	                        Copy
-	                      </button>
-                    </>
-                  )}
-                  {paymentState === 'error' && 'Error occurred'}
-                </p>
-              </div>
-            )}
-          </section>
-        </div>
+	                {!mySupportsLoading && mySupports.length === 0 && (
+	                  <p style={{ color: 'var(--muted)', fontSize: '14px' }}>
+	                    No supports yet. Support this channel!
+	                  </p>
+	                )}
 
-        <aside className="viewer-side">
-          {/* Membership Section */}
-          {membershipPlans.length === 0 && (
+	                {!mySupportsLoading && mySupports.length > 0 && (
+	                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+	                    {mySupports.map((support) => (
+	                      <div key={support.paymentId}>
+	                        <div
+	                          style={{
+	                            display: 'flex',
+	                            justifyContent: 'space-between',
+	                            alignItems: 'center',
+	                            padding: '8px',
+	                            background: 'var(--panel-2)',
+	                            borderRadius: expandedReceipt === support.paymentId ? '6px 6px 0 0' : '6px',
+	                          }}
+	                        >
+	                          <div>
+	                            <span
+	                              style={{
+	                                padding: '2px 6px',
+	                                borderRadius: '4px',
+	                                fontSize: '11px',
+	                                marginRight: '8px',
+	                                color: 'var(--primary-text)',
+	                                background:
+	                                  support.kind === 'donation'
+	                                    ? '#f2da00'
+	                                    : support.kind === 'qa'
+	                                    ? '#5cbffb'
+	                                    : support.kind === 'membership'
+	                                    ? 'var(--accent)'
+	                                    : '#9da5b6',
+	                              }}
+	                            >
+	                              {support.kind || 'effect'}
+	                            </span>
+	                            {support.timestamp && (
+	                              <span style={{ fontSize: '12px', color: 'var(--muted)' }}>
+	                                {new Date(support.timestamp * 1000).toLocaleDateString()}
+	                              </span>
+	                            )}
+	                          </div>
+	                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+	                            <span style={{ fontWeight: 'bold', color: 'var(--accent)' }}>
+	                              ${formatUsdcAmount(support.value)}
+	                            </span>
+	                            <button
+	                              onClick={() => handleViewReceipt(support.paymentId)}
+	                              style={{
+	                                background: 'transparent',
+	                                border: '1px solid var(--border)',
+	                                color: 'var(--muted)',
+	                                padding: '2px 8px',
+	                                fontSize: '11px',
+	                                cursor: 'pointer',
+	                              }}
+	                            >
+	                              {expandedReceipt === support.paymentId ? 'Hide' : 'Details'}
+	                            </button>
+	                          </div>
+	                        </div>
+	                        {expandedReceipt === support.paymentId && (
+	                          <div
+	                            style={{
+	                              padding: '12px',
+	                              background: 'var(--panel)',
+	                              borderRadius: '0 0 6px 6px',
+	                              borderTop: '1px solid var(--border)',
+	                              fontSize: '12px',
+	                            }}
+	                          >
+	                            {receiptLoading && <p style={{ color: 'var(--muted)' }}>Loading receipt...</p>}
+	                            {receiptError && <p style={{ color: 'var(--danger)' }}>{receiptError}</p>}
+	                            {receiptData && (
+	                              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+	                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+	                                  <span style={{ color: 'var(--muted)' }}>Status:</span>
+	                                  <span style={{ color: receiptData.status === 'settled' ? 'var(--accent)' : 'var(--text)' }}>
+	                                    {receiptData.status}
+	                                  </span>
+	                                </div>
+	                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+	                                  <span style={{ color: 'var(--muted)' }}>Network:</span>
+	                                  <span>{receiptData.network}</span>
+	                                </div>
+	                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+	                                  <span style={{ color: 'var(--muted)' }}>Amount:</span>
+	                                  <span>${formatUsdcAmount(receiptData.value)} USDC</span>
+	                                </div>
+	                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+	                                  <span style={{ color: 'var(--muted)' }}>From:</span>
+	                                  <span style={{ fontFamily: 'monospace' }}>{receiptData.fromAddress.slice(0, 10)}...</span>
+	                                </div>
+	                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+	                                  <span style={{ color: 'var(--muted)' }}>To:</span>
+	                                  <span style={{ fontFamily: 'monospace' }}>{receiptData.toAddress.slice(0, 10)}...</span>
+	                                </div>
+	                                {receiptData.txHash && (
+	                                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+	                                    <span style={{ color: 'var(--muted)' }}>Transaction:</span>
+	                                    <a
+	                                      href={`https://explorer.cronos.org/testnet/tx/${receiptData.txHash}`}
+	                                      target="_blank"
+	                                      rel="noopener noreferrer"
+	                                      style={{ color: 'var(--accent-text)' }}
+	                                    >
+	                                      {receiptData.txHash.slice(0, 10)}...
+	                                    </a>
+	                                  </div>
+	                                )}
+	                                {receiptData.blockNumber && (
+	                                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+	                                    <span style={{ color: 'var(--muted)' }}>Block:</span>
+	                                    <span>{receiptData.blockNumber}</span>
+	                                  </div>
+	                                )}
+	                                {receiptData.timestamp && (
+	                                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+	                                    <span style={{ color: 'var(--muted)' }}>Time:</span>
+	                                    <span>{new Date(receiptData.timestamp * 1000).toLocaleString()}</span>
+	                                  </div>
+	                                )}
+	                                {receiptData.actionKey && (
+	                                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+	                                    <span style={{ color: 'var(--muted)' }}>Action:</span>
+	                                    <span>{receiptData.actionKey}</span>
+	                                  </div>
+	                                )}
+	                              </div>
+	                            )}
+	                          </div>
+	                        )}
+	                      </div>
+	                    ))}
+	                  </div>
+	                )}
+
+	                {/* Load more button */}
+	                {!mySupportsLoading && mySupportsNextCursor && (
+	                  <button
+	                    onClick={loadMoreSupports}
+	                    disabled={mySupportsLoadingMore}
+	                    style={{
+	                      marginTop: '12px',
+	                      background: 'transparent',
+	                      color: 'var(--accent-text)',
+	                      border: '1px solid var(--border)',
+	                      fontSize: '12px',
+	                      width: '100%',
+	                    }}
+	                  >
+	                    {mySupportsLoadingMore ? 'Loading...' : 'Load More'}
+	                  </button>
+	                )}
+
+	                {/* Keep existing refresh button but only show when no more items to load */}
+	                {!mySupportsLoading && !mySupportsNextCursor && mySupports.length > 0 && (
+	                  <button
+	                    onClick={refreshMySupports}
+	                    style={{
+	                      marginTop: '12px',
+	                      background: 'transparent',
+	                      color: 'var(--muted)',
+	                      border: '1px solid var(--border)',
+	                      fontSize: '12px',
+	                      width: '100%',
+	                    }}
+	                  >
+	                    Refresh
+	                  </button>
+	                )}
+	              </div>
+	            </section>
+	          )}
+	        </div>
+
+	        <aside className="viewer-side">
+	          {/* Membership Section */}
+	          {membershipPlans.length === 0 && (
             <section>
               <h2>Membership</h2>
               <div className="card" style={{ marginTop: '12px' }}>
@@ -971,17 +892,130 @@ Expires At: ${nonceData.expiresAt}`;
                       Success!
                     </p>
                   )}
-              </div>
-            </section>
-          )}
+	              </div>
+	            </section>
+	          )}
 
-          <section style={{ marginTop: membershipPlans.length > 0 ? '24px' : 0 }}>
-	            <h2>Donate</h2>
-	            <div className="card" style={{ marginTop: '12px' }}>
-	              <p style={{ color: 'var(--muted)', fontSize: '14px', lineHeight: 1.4 }}>
-	                Donate while watching the stream. Amounts are in USDC; choose a preset or enter a custom amount.
+	          <section style={{ marginTop: '24px' }}>
+	            <h2>Effects</h2>
+	            <p style={{ marginTop: '8px', color: 'var(--muted)', fontSize: '14px' }}>
+	              Effects appear on the streamer overlay:{' '}
+	              <a href={`/o/${slug}`} style={{ color: 'var(--accent-text)' }}>
+	                /o/{slug}
+	              </a>
+	            </p>
+	            {actions.length === 0 ? (
+	              <div className="card" style={{ marginTop: '12px' }}>
+	                <EmptyState
+	                  icon="🎬"
+	                  title="No effects available"
+	                  description="This channel hasn't set up any paid effects yet. Check back later or try the donation or Q&A features."
+	                />
+	              </div>
+	            ) : (
+	              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '12px', marginTop: '12px' }}>
+	                {actions.map((action) => (
+	                  <button
+	                    key={action.actionKey}
+	                    onClick={() => handleTriggerAction(action.actionKey)}
+	                    disabled={!isWalletConnected || paymentState === 'signing' || paymentState === 'settling'}
+	                    style={{
+	                      padding: '16px',
+	                      background:
+	                        activeAction === action.actionKey && paymentState !== 'idle' && paymentState !== 'done'
+	                          ? '#f59e0b'
+	                          : 'var(--panel-2)',
+	                      color:
+	                        activeAction === action.actionKey && paymentState !== 'idle' && paymentState !== 'done'
+	                          ? 'var(--primary-text)'
+	                          : 'var(--text)',
+	                      border: '1px solid var(--border)',
+	                      display: 'flex',
+	                      flexDirection: 'column',
+	                      alignItems: 'center',
+	                      gap: '8px',
+	                    }}
+	                  >
+	                    <span style={{ fontSize: '24px' }}>
+	                      {action.type === 'sticker' ? '🖼️' : action.type === 'sound' ? '🔊' : '⚡'}
+	                    </span>
+	                    <span>{action.actionKey}</span>
+	                    <span style={{ fontSize: '12px', color: 'var(--muted)' }}>
+	                      ${formatUsdcAmount(action.priceBaseUnits)} USDC
+	                    </span>
+	                  </button>
+	                ))}
+	              </div>
+	            )}
+
+	            {paymentState !== 'idle' && (
+	              <div className="card" style={{ marginTop: '16px' }}>
+	                <p>
+	                  {paymentState === 'needs_payment' && 'Requesting payment...'}
+	                  {paymentState === 'signing' && 'Please sign the transaction...'}
+	                  {paymentState === 'settling' && 'Settling payment...'}
+	                  {paymentState === 'done' && lastResult && (
+	                    <>
+	                      Success! TX:{' '}
+	                      <a
+	                        href={`https://explorer.cronos.org/testnet/tx/${lastResult.txHash}`}
+	                        target="_blank"
+	                        rel="noopener noreferrer"
+	                        style={{ color: 'var(--accent-text)' }}
+	                      >
+	                        {lastResult.txHash.slice(0, 10)}...
+	                      </a>
+	                      <button
+	                        onClick={() => handleCopyTxHash(lastResult.txHash)}
+	                        style={{ marginLeft: '8px', background: 'transparent', color: 'var(--muted)', border: 'none', cursor: 'pointer', fontSize: '12px' }}
+	                      >
+	                        Copy
+	                      </button>
+	                    </>
+	                  )}
+	                  {paymentState === 'error' && 'Error occurred'}
+	                </p>
+	              </div>
+	            )}
+	          </section>
+
+	          <section style={{ marginTop: '24px' }}>
+		            <h2>Support</h2>
+		            <div className="card" style={{ marginTop: '12px' }}>
+		              <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+		                <button
+		                  onClick={() => setSupportKind('donation')}
+		                  disabled={supportState === 'needs_payment' || supportState === 'signing' || supportState === 'settling'}
+		                  style={{
+		                    flex: 1,
+		                    background: supportKind === 'donation' ? 'var(--primary)' : 'var(--panel-2)',
+		                    color: supportKind === 'donation' ? 'var(--primary-text)' : 'var(--text)',
+		                    border: '1px solid var(--border)',
+		                  }}
+		                >
+		                  Donate
+		                </button>
+		                <button
+		                  onClick={() => setSupportKind('qa')}
+		                  disabled={supportState === 'needs_payment' || supportState === 'signing' || supportState === 'settling'}
+		                  style={{
+		                    flex: 1,
+		                    background: supportKind === 'qa' ? 'var(--primary)' : 'var(--panel-2)',
+		                    color: supportKind === 'qa' ? 'var(--primary-text)' : 'var(--text)',
+		                    border: '1px solid var(--border)',
+		                  }}
+		                >
+		                  Ask a Question
+		                </button>
+		              </div>
+		              <p style={{ color: 'var(--muted)', fontSize: '14px', lineHeight: 1.4 }}>
+		                {supportKind === 'donation'
+		                  ? 'Donate while watching the stream. Amounts are in USDC; choose a preset or enter a custom amount.'
+		                  : 'Ask a question while watching the stream. Choose a tier; questions appear on the streamer overlay.'}
 	              </p>
 
+              {supportKind === 'donation' && (
+                <>
               <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
                 {[
                   { label: '$0.05', value: '0.05' },
@@ -1023,431 +1057,97 @@ Expires At: ${nonceData.expiresAt}`;
 	                  </p>
 	                )}
 	              </div>
-
-	              <div style={{ marginTop: '12px' }}>
-	                <label style={{ display: 'block', marginBottom: '4px', color: 'var(--muted)', fontSize: '14px' }}>
-	                  Display Name (optional)
-	                </label>
-                <input
-                  type="text"
-                  value={donationDisplayName}
-                  onChange={(e) => setDonationDisplayName(e.target.value)}
-                  placeholder="Anonymous"
-                  style={{ width: '100%' }}
-                />
-              </div>
-
-	              <div style={{ marginTop: '12px' }}>
-	                <label style={{ display: 'block', marginBottom: '4px', color: 'var(--muted)', fontSize: '14px' }}>
-	                  Message (optional)
-	                </label>
-                <textarea
-                  value={donationMessage}
-                  onChange={(e) => setDonationMessage(e.target.value)}
-                  placeholder="Say something..."
-                  rows={2}
-                  style={{ width: '100%', resize: 'vertical' }}
-                />
-              </div>
-
-	              <button
-	                onClick={handleDonate}
-	                disabled={!isWalletConnected || donationState === 'signing' || donationState === 'settling'}
-	                style={{ marginTop: '12px', background: 'var(--primary)', color: 'var(--primary-text)', width: '100%' }}
-	              >
-                {donationState === 'signing'
-                  ? 'Signing...'
-                  : donationState === 'settling'
-                  ? 'Settling...'
-                  : `Donate $${donationAmount}`}
-              </button>
-
-              {donationState !== 'idle' && (
-                <div className="card" style={{ marginTop: '12px' }}>
-                  <p>
-                    {donationState === 'needs_payment' && 'Requesting payment...'}
-                    {donationState === 'signing' && 'Please sign the transaction...'}
-                    {donationState === 'settling' && 'Settling payment...'}
-                    {donationState === 'done' && donationResult && (
-                      <>
-                        Thanks! TX:{' '}
-	                        <a
-	                          href={`https://explorer.cronos.org/testnet/tx/${donationResult.txHash}`}
-	                          target="_blank"
-	                          rel="noopener noreferrer"
-	                          style={{ color: 'var(--accent-text)' }}
-	                        >
-	                          {donationResult.txHash.slice(0, 10)}...
-	                        </a>
-                      </>
-                    )}
-                    {donationState === 'error' && 'Error occurred'}
-                  </p>
-                </div>
+                </>
               )}
-            </div>
-          </section>
 
-          <section style={{ marginTop: '24px' }}>
-            <h2>Ask a Question</h2>
-            <div className="card" style={{ marginTop: '12px' }}>
-	              <div style={{ marginBottom: '12px' }}>
+	              <div style={{ marginTop: '12px' }}>
 	                <label style={{ display: 'block', marginBottom: '4px', color: 'var(--muted)', fontSize: '14px' }}>
 	                  Display Name (optional)
 	                </label>
                 <input
                   type="text"
-                  value={qaDisplayName}
-                  onChange={(e) => setQaDisplayName(e.target.value)}
+                  value={supportDisplayName}
+                  onChange={(e) => setSupportDisplayName(e.target.value)}
                   placeholder="Anonymous"
                   style={{ width: '100%' }}
                 />
-              </div>
+	              </div>
 
-	              <div style={{ marginBottom: '12px' }}>
-	                <label style={{ display: 'block', marginBottom: '4px', color: 'var(--muted)', fontSize: '14px' }}>
-	                  Your Question
-	                </label>
-                <textarea
-                  value={qaMessage}
-                  onChange={(e) => setQaMessage(e.target.value)}
-                  placeholder="Type your question..."
-                  rows={3}
-                  style={{ width: '100%', resize: 'vertical' }}
-                />
-              </div>
+	              {supportKind === 'qa' && (
+	                <div style={{ marginTop: '12px' }}>
+	                  <label style={{ display: 'block', marginBottom: '4px', color: 'var(--muted)', fontSize: '14px' }}>
+	                    Tier
+	                  </label>
+	                  <select
+	                    value={qaTier}
+	                    onChange={(e) => setQaTier(e.target.value as 'normal' | 'priority')}
+	                    style={{ width: '100%' }}
+	                  >
+	                    <option value="normal">Normal - $0.25 USDC</option>
+	                    <option value="priority">Priority - $0.50 USDC</option>
+	                  </select>
+	                </div>
+	              )}
 
-	              <div style={{ marginBottom: '16px' }}>
-	                <label style={{ display: 'block', marginBottom: '4px', color: 'var(--muted)', fontSize: '14px' }}>
-	                  Tier
-	                </label>
-                <select
-                  value={qaTier}
-                  onChange={(e) => setQaTier(e.target.value as 'normal' | 'priority')}
-                  style={{ width: '100%' }}
-                >
-                  <option value="normal">Normal - $0.25 USDC</option>
-                  <option value="priority">Priority - $0.50 USDC</option>
-                </select>
+	              <div style={{ marginTop: '12px' }}>
+		                <label style={{ display: 'block', marginBottom: '4px', color: 'var(--muted)', fontSize: '14px' }}>
+		                  {supportKind === 'donation' ? 'Message (optional)' : 'Your Question'}
+		                </label>
+	                <textarea
+	                  value={supportMessage}
+	                  onChange={(e) => setSupportMessage(e.target.value)}
+	                  placeholder={supportKind === 'donation' ? 'Say something...' : 'Type your question...'}
+	                  rows={supportKind === 'donation' ? 2 : 3}
+	                  style={{ width: '100%', resize: 'vertical' }}
+	                />
               </div>
 
 	              <button
-	                onClick={handleSubmitQA}
-	                disabled={!isWalletConnected || !qaMessage.trim() || qaState === 'signing' || qaState === 'settling'}
-	                style={{ background: 'var(--primary)', color: 'var(--primary-text)', width: '100%' }}
-	              >
-                {qaState === 'signing' ? 'Signing...' : qaState === 'settling' ? 'Settling...' : 'Submit Question'}
-              </button>
+		                onClick={handleSubmitSupport}
+		                disabled={
+		                  !isWalletConnected ||
+		                  supportState === 'needs_payment' ||
+		                  supportState === 'signing' ||
+		                  supportState === 'settling' ||
+		                  (supportKind === 'qa' && !supportMessage.trim())
+		                }
+		                style={{ marginTop: '12px', background: 'var(--primary)', color: 'var(--primary-text)', width: '100%' }}
+		              >
+	                {supportState === 'signing'
+	                  ? 'Signing...'
+	                  : supportState === 'settling'
+	                  ? 'Settling...'
+	                  : supportKind === 'donation'
+	                  ? `Donate $${donationAmount}`
+	                  : 'Submit Question'}
+	              </button>
 
-	              {qaState === 'done' && qaResult && (
-	                <p style={{ marginTop: '12px', color: 'var(--accent)' }}>
-	                  Question submitted! TX:{' '}
-	                  <a
-	                    href={`https://explorer.cronos.org/testnet/tx/${qaResult.txHash}`}
-	                    target="_blank"
-	                    rel="noopener noreferrer"
-	                    style={{ color: 'var(--accent-text)' }}
-	                  >
-	                    {qaResult.txHash.slice(0, 10)}...
-	                  </a>
-	                </p>
-	              )}
-            </div>
-          </section>
-
-          {/* My Supports Section */}
-          {isWalletConnected && (
-            <section style={{ marginTop: '24px' }}>
-              <h2>My Supports</h2>
-	              <div className="card" style={{ marginTop: '12px' }}>
-	                {mySupportsLoading && <p style={{ color: 'var(--muted)' }}>Loading...</p>}
-
-	                {!mySupportsLoading && mySupports.length === 0 && (
-	                  <p style={{ color: 'var(--muted)', fontSize: '14px' }}>
-	                    No supports yet. Support this channel!
-	                  </p>
-	                )}
-
-                {!mySupportsLoading && mySupports.length > 0 && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {mySupports.map((support) => (
-                      <div key={support.paymentId}>
-                        <div
-                          style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            padding: '8px',
-                            background: 'var(--panel-2)',
-                            borderRadius: expandedReceipt === support.paymentId ? '6px 6px 0 0' : '6px',
-                          }}
-                        >
-                          <div>
-                            <span
-                              style={{
-                                padding: '2px 6px',
-                                borderRadius: '4px',
-                                fontSize: '11px',
-                                marginRight: '8px',
-                                color: 'var(--primary-text)',
-                                background:
-                                  support.kind === 'donation'
-                                    ? '#f2da00'
-                                    : support.kind === 'qa'
-                                    ? '#5cbffb'
-                                    : support.kind === 'membership'
-                                    ? 'var(--accent)'
-                                    : '#9da5b6',
-                              }}
-                            >
-                              {support.kind || 'effect'}
-                            </span>
-                            {support.timestamp && (
-                              <span style={{ fontSize: '12px', color: 'var(--muted)' }}>
-                                {new Date(support.timestamp * 1000).toLocaleDateString()}
-                              </span>
-                            )}
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ fontWeight: 'bold', color: 'var(--accent)' }}>
-                              ${formatUsdcAmount(support.value)}
-                            </span>
-                            <button
-                              onClick={() => handleViewReceipt(support.paymentId)}
-                              style={{
-                                background: 'transparent',
-                                border: '1px solid var(--border)',
-                                color: 'var(--muted)',
-                                padding: '2px 8px',
-                                fontSize: '11px',
-                                cursor: 'pointer',
-                              }}
-                            >
-                              {expandedReceipt === support.paymentId ? 'Hide' : 'Details'}
-                            </button>
-                          </div>
-                        </div>
-                        {expandedReceipt === support.paymentId && (
-                          <div
-                            style={{
-                              padding: '12px',
-                              background: 'var(--panel)',
-                              borderRadius: '0 0 6px 6px',
-                              borderTop: '1px solid var(--border)',
-                              fontSize: '12px',
-                            }}
-                          >
-                            {receiptLoading && <p style={{ color: 'var(--muted)' }}>Loading receipt...</p>}
-                            {receiptError && <p style={{ color: 'var(--danger)' }}>{receiptError}</p>}
-                            {receiptData && (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                  <span style={{ color: 'var(--muted)' }}>Status:</span>
-                                  <span style={{ color: receiptData.status === 'settled' ? 'var(--accent)' : 'var(--text)' }}>
-                                    {receiptData.status}
-                                  </span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                  <span style={{ color: 'var(--muted)' }}>Network:</span>
-                                  <span>{receiptData.network}</span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                  <span style={{ color: 'var(--muted)' }}>Amount:</span>
-                                  <span>${formatUsdcAmount(receiptData.value)} USDC</span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                  <span style={{ color: 'var(--muted)' }}>From:</span>
-                                  <span style={{ fontFamily: 'monospace' }}>{receiptData.fromAddress.slice(0, 10)}...</span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                  <span style={{ color: 'var(--muted)' }}>To:</span>
-                                  <span style={{ fontFamily: 'monospace' }}>{receiptData.toAddress.slice(0, 10)}...</span>
-                                </div>
-                                {receiptData.txHash && (
-                                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                    <span style={{ color: 'var(--muted)' }}>Transaction:</span>
-                                    <a
-                                      href={`https://explorer.cronos.org/testnet/tx/${receiptData.txHash}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      style={{ color: 'var(--accent-text)' }}
-                                    >
-                                      {receiptData.txHash.slice(0, 10)}...
-                                    </a>
-                                  </div>
-                                )}
-                                {receiptData.blockNumber && (
-                                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                    <span style={{ color: 'var(--muted)' }}>Block:</span>
-                                    <span>{receiptData.blockNumber}</span>
-                                  </div>
-                                )}
-                                {receiptData.timestamp && (
-                                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                    <span style={{ color: 'var(--muted)' }}>Time:</span>
-                                    <span>{new Date(receiptData.timestamp * 1000).toLocaleString()}</span>
-                                  </div>
-                                )}
-                                {receiptData.actionKey && (
-                                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                    <span style={{ color: 'var(--muted)' }}>Action:</span>
-                                    <span>{receiptData.actionKey}</span>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Load more button */}
-                {!mySupportsLoading && mySupportsNextCursor && (
-                  <button
-                    onClick={loadMoreSupports}
-                    disabled={mySupportsLoadingMore}
-                    style={{
-                      marginTop: '12px',
-                      background: 'transparent',
-                      color: 'var(--accent-text)',
-                      border: '1px solid var(--border)',
-                      fontSize: '12px',
-                      width: '100%',
-                    }}
-                  >
-                    {mySupportsLoadingMore ? 'Loading...' : 'Load More'}
-                  </button>
-                )}
-
-                {/* Keep existing refresh button but only show when no more items to load */}
-                {!mySupportsLoading && !mySupportsNextCursor && mySupports.length > 0 && (
-                  <button
-                    onClick={refreshMySupports}
-                    style={{
-                      marginTop: '12px',
-                      background: 'transparent',
-                      color: 'var(--muted)',
-                      border: '1px solid var(--border)',
-                      fontSize: '12px',
-                      width: '100%',
-                    }}
-                  >
-                    Refresh
-                  </button>
-                )}
-              </div>
-            </section>
-          )}
-          {/* Nickname Section */}
-          {isWalletConnected && (
-            <section style={{ marginTop: '24px' }}>
-              <h2>Nickname</h2>
-	              <div className="card" style={{ marginTop: '12px' }}>
-	                {nicknameLoading ? (
-	                  <p style={{ color: 'var(--muted)' }}>Loading...</p>
-	                ) : (
-	                  <>
-                    {/* Effective nickname preview */}
-	                    <div style={{ marginBottom: '16px', padding: '12px', background: 'var(--panel-2)', borderRadius: '6px' }}>
-	                      <p style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '4px' }}>Your display name:</p>
-	                      <p style={{ fontSize: '16px', fontWeight: 600 }}>
-	                        {channelProfileData?.effectiveDisplayName || walletAddress?.slice(0, 6) + '...' + walletAddress?.slice(-4)}
-	                      </p>
-	                      <p style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>
-	                        {channelProfileData?.channelDisplayNameOverride
-	                          ? '(channel override)'
-	                          : channelProfileData?.globalDisplayName
-                          ? '(global)'
-                          : '(wallet address)'}
-                      </p>
-                    </div>
-
-	                    {nicknameError && (
-	                      <p style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '12px' }}>{nicknameError}</p>
+	              {supportState !== 'idle' && (
+	                <div className="card" style={{ marginTop: '12px' }}>
+	                  <p>
+	                    {supportState === 'needs_payment' && 'Requesting payment...'}
+	                    {supportState === 'signing' && 'Please sign the transaction...'}
+	                    {supportState === 'settling' && 'Settling payment...'}
+	                    {supportState === 'done' && supportResult && (
+	                      <>
+	                        {supportKind === 'donation' ? 'Thanks!' : 'Question submitted!'} TX:{' '}
+		                        <a
+		                          href={`https://explorer.cronos.org/testnet/tx/${supportResult.txHash}`}
+		                          target="_blank"
+		                          rel="noopener noreferrer"
+		                          style={{ color: 'var(--accent-text)' }}
+		                        >
+		                          {supportResult.txHash.slice(0, 10)}...
+		                        </a>
+	                      </>
 	                    )}
+	                    {supportState === 'error' && 'Error occurred'}
+	                  </p>
+	                </div>
+	              )}
+	            </div>
+	          </section>
 
-                    {/* Global nickname editor */}
-	                    <div style={{ marginBottom: '16px' }}>
-	                      <label style={{ display: 'block', marginBottom: '4px', color: 'var(--muted)', fontSize: '14px' }}>
-	                        Global Nickname
-	                      </label>
-	                      <p style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '8px' }}>
-	                        Used across all channels unless overridden
-	                      </p>
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <input
-                          type="text"
-                          value={globalNicknameInput}
-                          onChange={(e) => setGlobalNicknameInput(e.target.value)}
-                          placeholder="2-20 characters"
-                          maxLength={20}
-                          style={{ flex: 1 }}
-                          disabled={nicknameSaving}
-                        />
-	                        <button
-	                          onClick={handleSaveGlobalNickname}
-	                          disabled={nicknameSaving || !globalNicknameInput.trim()}
-	                          style={{ background: 'var(--primary)', color: 'var(--primary-text)', whiteSpace: 'nowrap' }}
-	                        >
-	                          {nicknameSaving ? 'Signing...' : 'Save'}
-	                        </button>
-                      </div>
-                    </div>
-
-                    {/* Channel override editor */}
-	                    <div>
-	                      <label style={{ display: 'block', marginBottom: '4px', color: 'var(--muted)', fontSize: '14px' }}>
-	                        Channel Override
-	                      </label>
-	                      <p style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '8px' }}>
-	                        Optional: Use a different name for this channel only
-	                      </p>
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <input
-                          type="text"
-                          value={channelNicknameInput}
-                          onChange={(e) => setChannelNicknameInput(e.target.value)}
-                          placeholder="2-20 characters"
-                          maxLength={20}
-                          style={{ flex: 1 }}
-                          disabled={nicknameSaving}
-                        />
-	                        <button
-	                          onClick={handleSaveChannelNickname}
-	                          disabled={nicknameSaving || !channelNicknameInput.trim()}
-	                          style={{ background: 'var(--primary)', color: 'var(--primary-text)', whiteSpace: 'nowrap' }}
-	                        >
-	                          {nicknameSaving ? 'Signing...' : 'Set'}
-	                        </button>
-                      </div>
-                      {channelProfileData?.channelDisplayNameOverride && (
-                        <button
-                          onClick={handleClearChannelNickname}
-                          disabled={nicknameSaving}
-	                          style={{
-	                            marginTop: '8px',
-	                            background: 'transparent',
-	                            color: 'var(--muted)',
-	                            border: '1px solid var(--border)',
-	                            fontSize: '12px',
-	                            width: '100%',
-	                          }}
-                        >
-                          {nicknameSaving ? 'Signing...' : 'Reset to Global'}
-                        </button>
-                      )}
-                    </div>
-
-	                    <p style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '16px' }}>
-	                      Nickname changes require a wallet signature (no payment).
-	                    </p>
-                  </>
-                )}
-              </div>
-            </section>
-          )}
         </aside>
       </div>
       </div>
