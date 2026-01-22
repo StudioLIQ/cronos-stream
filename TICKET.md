@@ -354,6 +354,62 @@ Rules for execution:
 
 ---
 
+## EPIC 6 — Support history + receipts (Viewer + Streamer)
+
+### T6.1 — Viewer: “My Supports” auto-refresh + pagination
+**Priority:** P0  
+**Dependencies:** T4.3, existing `GET /api/channels/:slug/supports/me`  
+**Deliverables:**
+- After any successful settlement (effect / Q&A / donation / membership), refresh “My Supports” automatically.
+- Add a “Load more” button using `nextCursor`.
+- Optional: filter by kind (`effect|qa|donation|membership`).
+
+**Acceptance criteria:**
+- After a donation succeeds, the new support appears in “My Supports” without a manual refresh.
+- “Load more” appends older items and stops when `nextCursor` is null.
+
+---
+
+### T6.2 — API: Payment receipt (detailed view)
+**Priority:** P0  
+**Dependencies:** T1.2, T2.4  
+**Deliverables:**
+- Add endpoints that return a single payment row with receipt-grade detail:
+  - Public (viewer): `GET /api/channels/:slug/payments/:paymentId?address=0x...`
+  - Dashboard (streamer): `GET /api/channels/:slug/payments/:paymentId` (dashboard auth)
+- Response includes: `paymentId`, `status`, `kind`, `scheme`, `network`, `asset`, `fromAddress`, `toAddress`, `value`, `nonce`, `txHash`, `blockNumber`, `timestamp`, `actionKey`, `qaId`, `membershipPlanId`, `createdAt`.
+
+**Acceptance criteria:**
+- Viewer cannot fetch another wallet’s receipt (must match `fromAddress`).
+- Streamer can fetch any payment for the channel when authenticated.
+
+---
+
+### T6.3 — Realtime: Supports update on dashboard via SSE
+**Priority:** P0  
+**Dependencies:** T1.4, T2.4  
+**Deliverables:**
+- When a support settles, emit a dashboard SSE event (new `support.created` or reuse `support.alert`) with `paymentId`, `kind`, `value`, `fromAddress`, `txHash`, `timestamp`.
+- Dashboard listens and reflects it (toast + refresh stats/leaderboard, or a “Recent supports” list).
+
+**Acceptance criteria:**
+- With dashboard open, a new donation appears without reloading the page.
+
+---
+
+### T6.4 — Persist donation message / display name snapshot (optional)
+**Priority:** P1  
+**Dependencies:** T1.2, T6.2  
+**Deliverables:**
+- Store donation metadata (message, displayName snapshot) in DB (either new `donations` table keyed by `paymentId`, or additional columns).
+- Receipt endpoint includes donation message when available.
+- Viewer and dashboard show donation message in the receipt UI.
+
+**Acceptance criteria:**
+- Donation message persists across refresh and is visible in receipt detail.
+
+---
+
 ## Definition of Done (MVP)
 - Viewer can pay-trigger an effect and see it on overlay.
 - Viewer can pay-submit a Q&A and streamer can show it on overlay.
