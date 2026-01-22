@@ -79,6 +79,25 @@ export async function migrate(db: Pool): Promise<void> {
     ddl: `ALTER TABLE channels ADD COLUMN streamEmbedUrl TEXT NULL AFTER network`,
   });
 
+  // Ensure older deployments have the settlement receipt columns (txHash, blockNumber, timestamp).
+  await ensureColumnExists(db, {
+    table: 'payments',
+    column: 'txHash',
+    ddl: `ALTER TABLE payments ADD COLUMN txHash VARCHAR(128) NULL`,
+  });
+
+  await ensureColumnExists(db, {
+    table: 'payments',
+    column: 'blockNumber',
+    ddl: `ALTER TABLE payments ADD COLUMN blockNumber BIGINT NULL`,
+  });
+
+  await ensureColumnExists(db, {
+    table: 'payments',
+    column: 'timestamp',
+    ddl: `ALTER TABLE payments ADD COLUMN timestamp BIGINT NULL`,
+  });
+
   // T6.1: Support ledger - enrich payments with context
   await ensureColumnExists(db, {
     table: 'payments',

@@ -124,13 +124,32 @@ export async function markPaymentSettled(
   paymentId: string,
   settleResult: SettleSuccessResponse
 ): Promise<void> {
+  // Be defensive: facilitator responses may omit blockNumber/timestamp in some cases.
+  // mysql2 throws if a bound parameter is `undefined`, so normalize to null.
+  const blockNumberRaw = (settleResult as unknown as { blockNumber?: unknown }).blockNumber;
+  const timestampRaw = (settleResult as unknown as { timestamp?: unknown }).timestamp;
+
+  const blockNumber =
+    typeof blockNumberRaw === 'number' || typeof blockNumberRaw === 'string' ? blockNumberRaw : null;
+  const timestamp =
+    typeof timestampRaw === 'number' || typeof timestampRaw === 'string' ? timestampRaw : null;
+
+  if (blockNumber === null || timestamp === null) {
+    logger.warn('Settle success missing receipt fields (blockNumber/timestamp)', {
+      paymentId,
+      txHash: settleResult.txHash,
+      blockNumber: blockNumberRaw ?? null,
+      timestamp: timestampRaw ?? null,
+    });
+  }
+
   await execute(
     `UPDATE payments SET status = 'settled', txHash = ?, blockNumber = ?, timestamp = ?
      WHERE paymentId = ?`,
     [
       settleResult.txHash,
-      settleResult.blockNumber,
-      settleResult.timestamp,
+      blockNumber,
+      timestamp,
       paymentId,
     ]
   );
