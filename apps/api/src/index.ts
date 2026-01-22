@@ -16,7 +16,6 @@ import publicRoutes from './routes/public.js';
 import paywalledRoutes from './routes/paywalled.js';
 import dashboardRoutes from './routes/dashboard.js';
 import profileRoutes from './routes/profile.js';
-import agentRoutes from './routes/agent.js';
 
 const app = express();
 
@@ -31,9 +30,6 @@ app.get('/health', (_req, res) => {
 
 // Public routes
 app.use('/api', publicRoutes);
-
-// Agent routes (free planning helpers)
-app.use('/api', agentRoutes);
 
 // Paywalled routes
 app.use('/api', paywalledRoutes);

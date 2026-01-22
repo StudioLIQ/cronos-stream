@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { fetchChannel, fetchActions, fetchStreamStatus, triggerAction, donate, submitQA, is402Response, fetchMembershipPlans, fetchMembershipStatus, subscribeMembership, fetchMySupports, fetchChannelProfile, fetchGlobalProfileNonce, fetchChannelProfileNonce, updateGlobalProfile, updateChannelProfile, fetchPublicReceipt, planAgent } from '../lib/api';
-import type { Channel, Action, StreamStatusResponse, PaymentResponse, MembershipPlan, MembershipStatus, MembershipResponse, SupportItem, ChannelProfile, PaymentReceipt, AgentPlan, AgentStep, Error402Response } from '../lib/api';
+import { fetchChannel, fetchActions, fetchStreamStatus, triggerAction, donate, submitQA, is402Response, fetchMembershipPlans, fetchMembershipStatus, subscribeMembership, fetchMySupports, fetchChannelProfile, fetchGlobalProfileNonce, fetchChannelProfileNonce, updateGlobalProfile, updateChannelProfile, fetchPublicReceipt } from '../lib/api';
+import type { Channel, Action, StreamStatusResponse, PaymentResponse, MembershipPlan, MembershipStatus, MembershipResponse, SupportItem, ChannelProfile, PaymentReceipt, Error402Response } from '../lib/api';
 import { createPaymentHeader, formatUsdcAmount } from '../lib/x402';
 import { TopNav } from '../components/TopNav';
 import { OverlayLayer } from '../components/OverlayLayer';
@@ -15,17 +15,10 @@ import { useConfetti } from '../hooks/useConfetti';
 import { useWallet } from '../contexts/WalletContext';
 
 type PaymentState = 'idle' | 'needs_payment' | 'signing' | 'settling' | 'done' | 'error';
-type AgentState = 'idle' | 'planning' | 'ready' | 'running' | 'done' | 'error';
 
 interface PaymentResult {
   txHash: string;
   from: string;
-  value: string;
-}
-
-interface AgentRunResult {
-  step: AgentStep;
-  txHash: string;
   value: string;
 }
 
@@ -57,7 +50,6 @@ export default function Viewer() {
   const { addToast } = useToasts();
   const { fireSuccess } = useConfetti();
   const { address: walletAddress, signer: walletSigner, isConnected: isWalletConnected } = useWallet();
-  const showAgentSection = import.meta.env.DEV || new URLSearchParams(window.location.search).has('agent');
   const [channel, setChannel] = useState<Channel | null>(null);
   const [actions, setActions] = useState<Action[]>([]);
   const [streamStatus, setStreamStatus] = useState<StreamStatusResponse | null>(null);
@@ -102,14 +94,6 @@ export default function Viewer() {
   const [receiptData, setReceiptData] = useState<PaymentReceipt | null>(null);
   const [receiptLoading, setReceiptLoading] = useState(false);
   const [receiptError, setReceiptError] = useState<string | null>(null);
-
-  // Agent state (local, no API keys)
-  const [agentInput, setAgentInput] = useState('');
-  const [agentState, setAgentState] = useState<AgentState>('idle');
-  const [agentPlan, setAgentPlan] = useState<AgentPlan | null>(null);
-  const [agentError, setAgentError] = useState<string | null>(null);
-  const [agentRunResults, setAgentRunResults] = useState<AgentRunResult[]>([]);
-  const [agentRunningStep, setAgentRunningStep] = useState<number | null>(null);
 
   // Nickname state
   const [channelProfileData, setChannelProfileData] = useState<ChannelProfile | null>(null);
@@ -251,77 +235,6 @@ export default function Viewer() {
 
     return result as T;
   }
-
-  const handlePlanAgent = async () => {
-    if (!slug) return;
-    if (!agentInput.trim()) return;
-
-    setAgentState('planning');
-    setAgentError(null);
-    setAgentPlan(null);
-    setAgentRunResults([]);
-    setAgentRunningStep(null);
-
-    try {
-      const plan = await planAgent(slug, agentInput.trim(), { maxSteps: 5 });
-      setAgentPlan(plan);
-      setAgentState('ready');
-    } catch (err) {
-      setAgentError((err as Error).message);
-      setAgentState('error');
-    }
-  };
-
-  const handleRunAgent = async () => {
-    if (!slug) return;
-    if (!agentPlan || agentPlan.steps.length === 0) return;
-
-    if (!isWalletConnected || !walletSigner) {
-      addToast('Please connect your wallet first', 'warning');
-      return;
-    }
-
-    setAgentState('running');
-    setAgentError(null);
-    setAgentRunResults([]);
-
-    try {
-      const results: AgentRunResult[] = [];
-
-      for (let i = 0; i < agentPlan.steps.length; i++) {
-        const step = agentPlan.steps[i];
-        setAgentRunningStep(i + 1);
-
-        if (step.kind === 'effect') {
-          const res = await settleWithX402((paymentHeader) => triggerAction(slug, step.actionKey, paymentHeader));
-          results.push({ step, txHash: res.payment.txHash, value: res.payment.value });
-        } else if (step.kind === 'donation') {
-          const res = await settleWithX402((paymentHeader) =>
-            donate(slug, step.amountBaseUnits, step.message, step.displayName, paymentHeader)
-          );
-          results.push({ step, txHash: res.payment.txHash, value: res.payment.value });
-        } else if (step.kind === 'qa') {
-          const res = await settleWithX402((paymentHeader) =>
-            submitQA(slug, step.message, step.displayName, step.tier, paymentHeader)
-          );
-          results.push({ step, txHash: res.payment.txHash, value: res.payment.value });
-        } else if (step.kind === 'membership') {
-          const res = await settleWithX402((paymentHeader) => subscribeMembership(slug, step.planId, paymentHeader));
-          results.push({ step, txHash: res.payment.txHash, value: res.payment.value });
-        }
-      }
-
-      setAgentRunResults(results);
-      setAgentState('done');
-      setAgentRunningStep(null);
-      addToast('Agent run complete', 'success');
-      refreshMySupports();
-    } catch (err) {
-      setAgentError((err as Error).message);
-      setAgentState('error');
-      setAgentRunningStep(null);
-    }
-  };
 
   useEffect(() => {
     refreshMySupports();
@@ -1257,119 +1170,6 @@ Expires At: ${nonceData.expiresAt}`;
 	              )}
             </div>
           </section>
-
-          {/* Agent Section (dev/hidden) */}
-          {showAgentSection && (
-            <section style={{ marginTop: '24px' }}>
-            <h2>Agent (Local)</h2>
-            <div className="card" style={{ marginTop: '12px' }}>
-              <p style={{ color: 'var(--muted)', fontSize: '14px', lineHeight: 1.4 }}>
-                Type a command and the local agent will build a payment plan (no API keys). You can review the plan before signing.
-              </p>
-
-              <div style={{ marginTop: '12px' }}>
-                <label style={{ display: 'block', marginBottom: '4px', color: 'var(--muted)', fontSize: '14px' }}>
-                  Command
-                </label>
-                <textarea
-                  value={agentInput}
-                  onChange={(e) => setAgentInput(e.target.value)}
-                  placeholder={`Examples:\n- donate 0.05 \"gm\" and airhorn\n- sticker then ask \"What should I build next?\" priority`}
-                  rows={3}
-                  style={{ width: '100%', resize: 'vertical' }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-                <button
-                  onClick={handlePlanAgent}
-                  disabled={!agentInput.trim() || agentState === 'planning' || agentState === 'running'}
-                  style={{ background: 'var(--panel-2)', border: '1px solid var(--border)', color: 'var(--text)', flex: 1 }}
-                >
-                  {agentState === 'planning' ? 'Planning...' : 'Plan'}
-                </button>
-                <button
-                  onClick={handleRunAgent}
-                  disabled={!agentPlan || agentState === 'planning' || agentState === 'running'}
-                  style={{ background: 'var(--primary)', color: 'var(--primary-text)', flex: 1 }}
-                >
-                  {agentState === 'running'
-                    ? agentRunningStep
-                      ? `Running ${agentRunningStep}/${agentPlan?.steps.length || 0}...`
-                      : 'Running...'
-                    : 'Run'}
-                </button>
-              </div>
-
-              {agentPlan && (
-                <div style={{ marginTop: '12px' }}>
-                  {agentPlan.warnings?.length > 0 && (
-                    <div style={{ marginBottom: '10px' }}>
-	                      {agentPlan.warnings.map((w, idx) => (
-	                        <p key={idx} style={{ color: 'var(--muted)', fontSize: '13px', margin: 0 }}>
-	                          Warning: {w}
-	                        </p>
-	                      ))}
-                    </div>
-                  )}
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    {agentPlan.steps.map((s, idx) => (
-                      <div
-                        key={idx}
-                        style={{
-                          padding: '8px',
-                          background: 'var(--panel-2)',
-                          border: '1px solid var(--border)',
-                          borderRadius: '8px',
-                          fontSize: '13px',
-                        }}
-                      >
-                        {idx + 1}.{' '}
-                        {s.kind === 'effect'
-                          ? `Trigger effect: ${s.actionKey}`
-                          : s.kind === 'donation'
-                          ? `Donate: ${formatUsdcAmount(s.amountBaseUnits)} USDC${s.message ? ` — "${s.message}"` : ''}`
-                          : s.kind === 'qa'
-                          ? `Q&A (${s.tier}): "${s.message}"`
-                          : `Membership: ${s.planId}`}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {agentRunResults.length > 0 && (
-                <div style={{ marginTop: '12px' }}>
-                  <p style={{ marginBottom: '8px', fontWeight: 600 }}>Results</p>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {agentRunResults.map((r, idx) => (
-                      <div key={idx} style={{ padding: '8px', background: 'var(--panel-2)', borderRadius: '8px' }}>
-                        <div style={{ fontSize: '13px', color: 'var(--muted)' }}>
-                          Step {idx + 1}: {r.step.kind}
-                        </div>
-                        <a
-                          href={`https://explorer.cronos.org/testnet/tx/${r.txHash}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{ color: 'var(--accent-text)', fontSize: '13px' }}
-                        >
-                          {r.txHash.slice(0, 12)}...
-                        </a>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {agentError && (
-                <p style={{ marginTop: '12px', color: 'var(--danger)', fontSize: '13px' }}>
-                  {agentError}
-                </p>
-              )}
-            </div>
-            </section>
-          )}
 
           {/* My Supports Section */}
           {isWalletConnected && (

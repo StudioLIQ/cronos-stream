@@ -19,7 +19,6 @@ import {
 import { broadcastToOverlay, broadcastToDashboard, broadcastToAll } from '../sse/broker.js';
 import type { SettleSuccessResponse } from '../x402/types.js';
 import { getEffectiveDisplayName } from './profile.js';
-import { moderateText } from '../agent/moderation.js';
 import { getMembershipNftContractAddress, getMembershipTokenId, isMembershipNftConfigured, mintMembershipNft } from '../lib/membershipNft.js';
 
 interface SupportAlertData {
@@ -572,27 +571,6 @@ router.post('/channels/:slug/qa', async (req: Request, res: Response, next: Next
       return;
     }
 
-    // Agentic moderation gate (AFTER verify, BEFORE settle)
-    const moderationInput = [
-      typeof displayName === 'string' && displayName.trim() ? `displayName: ${displayName.trim()}` : null,
-      `message: ${message}`,
-    ]
-      .filter(Boolean)
-      .join('\n');
-
-    const moderation = await moderateText(moderationInput);
-    if (moderation.action === 'reject') {
-      logger.warn('Q&A rejected by moderation', { paymentId, fromAddress, tags: moderation.tags, provider: moderation.provider });
-      res.status(400).json({ error: moderation.reason || 'Message rejected by moderation' });
-      return;
-    }
-    if (moderation.action === 'block') {
-      await blockWallet(channel.id, fromAddress, moderation.reason || 'Blocked by moderation agent');
-      logger.warn('Wallet blocked by moderation', { paymentId, fromAddress, tags: moderation.tags, provider: moderation.provider });
-      res.status(403).json({ error: moderation.reason || 'Your wallet has been blocked from this channel' });
-      return;
-    }
-
     // Generate Q&A ID early so we can store it in payment context
     const qaId = uuid();
 
@@ -801,30 +779,12 @@ router.post('/channels/:slug/donate', async (req: Request, res: Response, next: 
       return;
     }
 
-    // Agentic moderation gate (AFTER verify, BEFORE settle)
+    // Blocklist gate (AFTER verify, BEFORE settle)
     const fromAddress = paymentHeader.payload.from;
     if (await isWalletBlocked(channel.id, fromAddress)) {
       logger.warn('Blocked wallet attempted donation', { paymentId, fromAddress });
       res.status(403).json({ error: 'Your wallet has been blocked from this channel' });
       return;
-    }
-
-    const moderationParts: string[] = [];
-    if (typeof displayName === 'string' && displayName.trim()) moderationParts.push(`displayName: ${displayName.trim()}`);
-    if (typeof message === 'string' && message.trim()) moderationParts.push(`message: ${message.trim()}`);
-    if (moderationParts.length > 0) {
-      const moderation = await moderateText(moderationParts.join('\n'));
-      if (moderation.action === 'reject') {
-        logger.warn('Donation rejected by moderation', { paymentId, fromAddress, tags: moderation.tags, provider: moderation.provider });
-        res.status(400).json({ error: moderation.reason || 'Message rejected by moderation' });
-        return;
-      }
-      if (moderation.action === 'block') {
-        await blockWallet(channel.id, fromAddress, moderation.reason || 'Blocked by moderation agent');
-        logger.warn('Wallet blocked by moderation (donation)', { paymentId, fromAddress, tags: moderation.tags, provider: moderation.provider });
-        res.status(403).json({ error: moderation.reason || 'Your wallet has been blocked from this channel' });
-        return;
-      }
     }
 
     // Create payment record (if new)

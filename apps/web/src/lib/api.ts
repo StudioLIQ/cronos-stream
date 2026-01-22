@@ -72,40 +72,6 @@ function extractErrorMessage(data: unknown, fallback: string): string {
   return reason ? `${error}: ${reason}` : error;
 }
 
-export type AgentStep =
-  | { kind: 'effect'; actionKey: string }
-  | { kind: 'donation'; amountBaseUnits: string; message: string | null; displayName: string | null }
-  | { kind: 'qa'; message: string; tier: 'normal' | 'priority'; displayName: string | null }
-  | { kind: 'membership'; planId: string };
-
-export interface AgentPlan {
-  steps: AgentStep[];
-  summary: string;
-  warnings: string[];
-}
-
-export async function planAgent(
-  slug: string,
-  input: string,
-  options: { maxSteps?: number } = {}
-): Promise<AgentPlan> {
-  const res = await fetch(`${API_BASE}/channels/${slug}/agent/plan`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ input, maxSteps: options.maxSteps }),
-  });
-
-  const data = await res.json();
-
-  if (!res.ok) {
-    throw new Error(data.error || 'Failed to build agent plan');
-  }
-
-  return data.plan as AgentPlan;
-}
-
 export async function fetchChannel(slug: string): Promise<Channel> {
   const res = await fetch(`${API_BASE}/channels/${slug}`);
   if (!res.ok) throw new Error('Channel not found');
