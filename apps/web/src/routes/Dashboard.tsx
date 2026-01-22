@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { connectSSE } from '../lib/sse';
 import { QaItemSkeleton, LeaderboardItemSkeleton, MemberItemSkeleton, GoalItemSkeleton } from '../components/Skeleton';
 import { EmptyState } from '../components/EmptyState';
+import { ShareLinks } from '../components/ShareLinks';
 
 interface QaItem {
   id: string;
@@ -657,6 +658,9 @@ export default function Dashboard() {
           </button>
         </div>
       )}
+
+      {/* Share Links */}
+      {slug && <ShareLinks slug={slug} />}
 
       {/* Q&A Tab */}
       {activeTab === 'qa' && (
