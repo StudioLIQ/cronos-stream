@@ -1054,6 +1054,85 @@ router.post('/channels/:slug/goals/:goalId/reset', async (req, res, next) => {
   }
 });
 
+// T10.11: Dashboard KPI cards
+
+// GET /api/channels/:slug/stats - Get channel statistics (dashboard auth)
+router.get('/channels/:slug/stats', async (req, res, next) => {
+  try {
+    const { slug } = req.params;
+
+    const channel = await getChannelBySlug(slug);
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+
+    // Total revenue (all settled payments)
+    const revenueResult = await queryOne<{ total: string | null }>(
+      `SELECT SUM(CAST(value AS DECIMAL(38, 0))) as total
+       FROM payments WHERE channelId = ? AND status = 'settled'`,
+      [channel.id]
+    );
+    const totalRevenue = revenueResult?.total || '0';
+
+    // Total supporters (unique addresses)
+    const supportersResult = await queryOne<{ count: number }>(
+      `SELECT COUNT(DISTINCT fromAddress) as count
+       FROM payments WHERE channelId = ? AND status = 'settled'`,
+      [channel.id]
+    );
+    const totalSupporters = supportersResult?.count || 0;
+
+    // Active members
+    const membersResult = await queryOne<{ count: number }>(
+      `SELECT COUNT(*) as count FROM memberships
+       WHERE channelId = ? AND revoked = 0 AND expiresAt > ?`,
+      [channel.id, now]
+    );
+    const activeMembers = membersResult?.count || 0;
+
+    // Queued Q&A items
+    const queuedResult = await queryOne<{ count: number }>(
+      `SELECT COUNT(*) as count FROM qa_items
+       WHERE channelId = ? AND status = 'queued'`,
+      [channel.id]
+    );
+    const queuedQA = queuedResult?.count || 0;
+
+    // Today's revenue
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayStartStr = todayStart.toISOString().slice(0, 19).replace('T', ' ');
+
+    const todayRevenueResult = await queryOne<{ total: string | null }>(
+      `SELECT SUM(CAST(value AS DECIMAL(38, 0))) as total
+       FROM payments WHERE channelId = ? AND status = 'settled' AND createdAt >= ?`,
+      [channel.id, todayStartStr]
+    );
+    const todayRevenue = todayRevenueResult?.total || '0';
+
+    // Total transactions
+    const transactionsResult = await queryOne<{ count: number }>(
+      `SELECT COUNT(*) as count FROM payments WHERE channelId = ? AND status = 'settled'`,
+      [channel.id]
+    );
+    const totalTransactions = transactionsResult?.count || 0;
+
+    res.json({
+      totalRevenue,
+      todayRevenue,
+      totalSupporters,
+      activeMembers,
+      queuedQA,
+      totalTransactions,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // T9.4: CSV Export endpoints
 
 // GET /api/channels/:slug/export/supports - Export all supports as CSV data (dashboard auth)

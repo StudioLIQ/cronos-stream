@@ -128,6 +128,16 @@ export default function Dashboard() {
   const [showGoalForm, setShowGoalForm] = useState(false);
   const [newGoal, setNewGoal] = useState({ type: 'donation' as 'donation' | 'membership', name: '', targetValue: '' });
 
+  // Stats state
+  const [stats, setStats] = useState<{
+    totalRevenue: string;
+    todayRevenue: string;
+    totalSupporters: number;
+    activeMembers: number;
+    queuedQA: number;
+    totalTransactions: number;
+  } | null>(null);
+
   const fetchItems = useCallback(async () => {
     if (!slug || !token) return;
     setLoading(true);
@@ -280,6 +290,27 @@ export default function Dashboard() {
       setError((err as Error).message);
     } finally {
       setGoalsLoading(false);
+    }
+  }, [slug, token]);
+
+  const fetchStats = useCallback(async () => {
+    if (!slug || !token) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/channels/${slug}/stats`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to fetch stats');
+      }
+
+      const data = await res.json();
+      setStats(data);
+    } catch (err) {
+      // Ignore errors for stats
     }
   }, [slug, token]);
 
@@ -521,6 +552,13 @@ export default function Dashboard() {
     }
   }, [fetchGoals, authenticated, activeTab]);
 
+  // Fetch stats on authentication
+  useEffect(() => {
+    if (authenticated) {
+      fetchStats();
+    }
+  }, [fetchStats, authenticated]);
+
   useEffect(() => {
     if (!slug || !authenticated) return;
 
@@ -754,6 +792,55 @@ export default function Dashboard() {
 
       {/* Share Links */}
       {slug && <ShareLinks slug={slug} />}
+
+      {/* KPI Cards */}
+      {stats && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+            gap: '12px',
+            marginBottom: '20px',
+          }}
+        >
+          <div className="card" style={{ marginBottom: 0, textAlign: 'center', padding: '16px' }}>
+            <p style={{ color: '#888', fontSize: '12px', marginBottom: '4px' }}>Total Revenue</p>
+            <p style={{ fontSize: '24px', fontWeight: 700, color: '#10b981' }}>
+              ${formatUSDC(stats.totalRevenue)}
+            </p>
+          </div>
+          <div className="card" style={{ marginBottom: 0, textAlign: 'center', padding: '16px' }}>
+            <p style={{ color: '#888', fontSize: '12px', marginBottom: '4px' }}>Today</p>
+            <p style={{ fontSize: '24px', fontWeight: 700, color: '#3b82f6' }}>
+              ${formatUSDC(stats.todayRevenue)}
+            </p>
+          </div>
+          <div className="card" style={{ marginBottom: 0, textAlign: 'center', padding: '16px' }}>
+            <p style={{ color: '#888', fontSize: '12px', marginBottom: '4px' }}>Supporters</p>
+            <p style={{ fontSize: '24px', fontWeight: 700 }}>
+              {stats.totalSupporters}
+            </p>
+          </div>
+          <div className="card" style={{ marginBottom: 0, textAlign: 'center', padding: '16px' }}>
+            <p style={{ color: '#888', fontSize: '12px', marginBottom: '4px' }}>Active Members</p>
+            <p style={{ fontSize: '24px', fontWeight: 700, color: '#6366f1' }}>
+              {stats.activeMembers}
+            </p>
+          </div>
+          <div className="card" style={{ marginBottom: 0, textAlign: 'center', padding: '16px' }}>
+            <p style={{ color: '#888', fontSize: '12px', marginBottom: '4px' }}>Q&A Queue</p>
+            <p style={{ fontSize: '24px', fontWeight: 700, color: stats.queuedQA > 0 ? '#f59e0b' : '#888' }}>
+              {stats.queuedQA}
+            </p>
+          </div>
+          <div className="card" style={{ marginBottom: 0, textAlign: 'center', padding: '16px' }}>
+            <p style={{ color: '#888', fontSize: '12px', marginBottom: '4px' }}>Transactions</p>
+            <p style={{ fontSize: '24px', fontWeight: 700 }}>
+              {stats.totalTransactions}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Q&A Tab */}
       {activeTab === 'qa' && (
