@@ -74,7 +74,13 @@ export default function Viewer() {
   const navigate = useNavigate();
   const { addToast } = useToasts();
   const { fireSuccess } = useConfetti();
-  const { address: walletAddress, signer: walletSigner, isConnected: isWalletConnected } = useWallet();
+  const {
+    address: walletAddress,
+    signer: walletSigner,
+    isConnected: isWalletConnected,
+    isConnecting: isWalletConnecting,
+    connect: connectWallet,
+  } = useWallet();
   const [channel, setChannel] = useState<Channel | null>(null);
   const [actions, setActions] = useState<Action[]>([]);
   const [streamStatus, setStreamStatus] = useState<StreamStatusResponse | null>(null);
@@ -102,6 +108,15 @@ export default function Viewer() {
     setSupportResult(null);
     setDonationAmountError(null);
   }, [supportKind]);
+
+  const handleConnectWallet = async () => {
+    try {
+      await connectWallet();
+      addToast('Wallet connected successfully', 'success');
+    } catch (err) {
+      addToast((err as Error).message, 'error');
+    }
+  };
 
   // Membership state
   const [membershipPlans, setMembershipPlans] = useState<MembershipPlan[]>([]);
@@ -785,15 +800,55 @@ export default function Viewer() {
               </div>
             </section>
           )}
-          {membershipPlans.length > 0 && (
-            <section>
-              <h2>Membership</h2>
-              <div className="card" style={{ marginTop: '12px' }}>
-	                {membershipStatus?.active ? (
+	          {membershipPlans.length > 0 && (
+	            <section>
+	              <h2>Membership</h2>
+	              <div className="card" style={{ marginTop: '12px' }}>
+	                {!isWalletConnected ? (
 	                  <div>
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
+	                    <p style={{ color: 'var(--muted)', fontSize: '14px', marginBottom: '12px' }}>
+	                      Connect your wallet to subscribe.
+	                    </p>
+	                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+	                      {membershipPlans.map((plan) => (
+	                        <div
+	                          key={plan.id}
+	                          style={{
+	                            display: 'flex',
+	                            justifyContent: 'space-between',
+	                            alignItems: 'center',
+	                            padding: '10px 12px',
+	                            background: 'var(--panel-2)',
+	                            border: '1px solid var(--border)',
+	                            borderRadius: '8px',
+	                            fontSize: '13px',
+	                          }}
+	                        >
+	                          <span style={{ fontWeight: 600 }}>{plan.name}</span>
+	                          <span style={{ color: 'var(--muted)' }}>${formatUsdcAmount(plan.priceBaseUnits)}</span>
+	                        </div>
+	                      ))}
+	                    </div>
+	                    <button
+	                      onClick={handleConnectWallet}
+	                      disabled={isWalletConnecting}
+	                      style={{
+	                        marginTop: '12px',
+	                        background: 'var(--primary)',
+	                        color: 'var(--primary-text)',
+	                        width: '100%',
+	                      }}
+	                    >
+	                      {isWalletConnecting ? 'Connecting...' : 'Connect Wallet'}
+	                    </button>
+	                  </div>
+	                ) : (
+	                  <div>
+		                {membershipStatus?.active ? (
+		                  <div>
+	                    <div style={{
+	                      display: 'flex',
+	                      alignItems: 'center',
                       gap: '8px',
                       marginBottom: '12px',
                     }}>
@@ -890,8 +945,10 @@ export default function Viewer() {
                   {membershipState === 'done' && membershipResult && !membershipResult.payment.txHash && (
                     <p style={{ marginTop: '12px', color: 'var(--accent)' }}>
                       Success!
-                    </p>
-                  )}
+	                    </p>
+	                  )}
+		              </div>
+	                )}
 	              </div>
 	            </section>
 	          )}
@@ -912,8 +969,58 @@ export default function Viewer() {
 	                  description="This channel hasn't set up any paid effects yet. Check back later or try the donation or Q&A features."
 	                />
 	              </div>
+	            ) : !isWalletConnected ? (
+	              <div className="card" style={{ marginTop: '12px' }}>
+	                <p style={{ color: 'var(--muted)', fontSize: '14px', marginBottom: '12px' }}>
+	                  Connect your wallet to trigger effects.
+	                </p>
+	                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+	                  {actions.slice(0, 3).map((action) => (
+	                    <div
+	                      key={action.actionKey}
+	                      style={{
+	                        display: 'flex',
+	                        justifyContent: 'space-between',
+	                        alignItems: 'center',
+	                        padding: '10px 12px',
+	                        background: 'var(--panel-2)',
+	                        border: '1px solid var(--border)',
+	                        borderRadius: '8px',
+	                        fontSize: '13px',
+	                      }}
+	                    >
+	                      <span style={{ fontWeight: 600 }}>{action.actionKey}</span>
+	                      <span style={{ color: 'var(--muted)' }}>${formatUsdcAmount(action.priceBaseUnits)}</span>
+	                    </div>
+	                  ))}
+	                  {actions.length > 3 && (
+	                    <p style={{ marginTop: '4px', color: 'var(--muted)', fontSize: '12px' }}>
+	                      +{actions.length - 3} more effect{actions.length - 3 === 1 ? '' : 's'}
+	                    </p>
+	                  )}
+	                </div>
+	                <button
+	                  onClick={handleConnectWallet}
+	                  disabled={isWalletConnecting}
+	                  style={{
+	                    marginTop: '12px',
+	                    background: 'var(--primary)',
+	                    color: 'var(--primary-text)',
+	                    width: '100%',
+	                  }}
+	                >
+	                  {isWalletConnecting ? 'Connecting...' : 'Connect Wallet'}
+	                </button>
+	              </div>
 	            ) : (
-	              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '12px', marginTop: '12px' }}>
+	              <div
+	                style={{
+	                  display: 'grid',
+	                  gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+	                  gap: '12px',
+	                  marginTop: '12px',
+	                }}
+	              >
 	                {actions.map((action) => (
 	                  <button
 	                    key={action.actionKey}
@@ -982,7 +1089,59 @@ export default function Viewer() {
 	          <section style={{ marginTop: '24px' }}>
 		            <h2>Support</h2>
 		            <div className="card" style={{ marginTop: '12px' }}>
-		              <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+		              {!isWalletConnected ? (
+		                <div>
+		                  <p style={{ color: 'var(--muted)', fontSize: '14px', marginBottom: '12px' }}>
+		                    Connect your wallet to donate or ask a question.
+		                  </p>
+		                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+		                    <div
+		                      style={{
+		                        display: 'flex',
+		                        justifyContent: 'space-between',
+		                        alignItems: 'center',
+		                        padding: '10px 12px',
+		                        background: 'var(--panel-2)',
+		                        border: '1px solid var(--border)',
+		                        borderRadius: '8px',
+		                        fontSize: '13px',
+		                      }}
+		                    >
+		                      <span style={{ fontWeight: 600 }}>Donate</span>
+		                      <span style={{ color: 'var(--muted)' }}>from $0.05</span>
+		                    </div>
+		                    <div
+		                      style={{
+		                        display: 'flex',
+		                        justifyContent: 'space-between',
+		                        alignItems: 'center',
+		                        padding: '10px 12px',
+		                        background: 'var(--panel-2)',
+		                        border: '1px solid var(--border)',
+		                        borderRadius: '8px',
+		                        fontSize: '13px',
+		                      }}
+		                    >
+		                      <span style={{ fontWeight: 600 }}>Ask a Question</span>
+		                      <span style={{ color: 'var(--muted)' }}>from $0.25</span>
+		                    </div>
+		                  </div>
+		                  <button
+		                    onClick={handleConnectWallet}
+		                    disabled={isWalletConnecting}
+		                    style={{
+		                      marginTop: '12px',
+		                      background: 'var(--primary)',
+		                      color: 'var(--primary-text)',
+		                      width: '100%',
+		                    }}
+		                  >
+		                    {isWalletConnecting ? 'Connecting...' : 'Connect Wallet'}
+		                  </button>
+		                </div>
+		              ) : (
+		                <>
+		                  <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
 		                <button
 		                  onClick={() => setSupportKind('donation')}
 		                  disabled={supportState === 'needs_payment' || supportState === 'signing' || supportState === 'settling'}
@@ -1122,9 +1281,9 @@ export default function Viewer() {
 	                  : 'Submit Question'}
 	              </button>
 
-	              {supportState !== 'idle' && (
-	                <div className="card" style={{ marginTop: '12px' }}>
-	                  <p>
+		              {supportState !== 'idle' && (
+		                <div className="card" style={{ marginTop: '12px' }}>
+		                  <p>
 	                    {supportState === 'needs_payment' && 'Requesting payment...'}
 	                    {supportState === 'signing' && 'Please sign the transaction...'}
 	                    {supportState === 'settling' && 'Settling payment...'}
@@ -1143,9 +1302,11 @@ export default function Viewer() {
 	                    )}
 	                    {supportState === 'error' && 'Error occurred'}
 	                  </p>
-	                </div>
-	              )}
-	            </div>
+		                </div>
+		              )}
+		                </>
+		              )}
+		            </div>
 	          </section>
 
         </aside>
