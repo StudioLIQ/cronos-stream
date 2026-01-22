@@ -4,6 +4,7 @@ import { connectSSE } from '../lib/sse';
 import { QaItemSkeleton, LeaderboardItemSkeleton, MemberItemSkeleton, GoalItemSkeleton } from '../components/Skeleton';
 import { EmptyState } from '../components/EmptyState';
 import { ShareLinks } from '../components/ShareLinks';
+import { generateCsv, downloadCsv, formatTimestamp, formatDatetime } from '../lib/csv';
 
 interface QaItem {
   id: string;
@@ -404,6 +405,98 @@ export default function Dashboard() {
     }
   };
 
+  const exportSupports = async () => {
+    if (!slug || !token) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/channels/${slug}/export/supports`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to export supports');
+      }
+
+      const data = await res.json();
+      const csv = generateCsv(
+        data.items.map((item: { paymentId: string; fromAddress: string; displayName: string | null; value: string; kind: string | null; actionKey: string | null; qaId: string | null; txHash: string | null; timestamp: number | null; createdAt: string }) => ({
+          paymentId: item.paymentId,
+          fromAddress: item.fromAddress,
+          displayName: item.displayName || '',
+          valueUSDC: (Number(BigInt(item.value)) / 1000000).toFixed(6),
+          valueBaseUnits: item.value,
+          kind: item.kind || '',
+          actionKey: item.actionKey || '',
+          txHash: item.txHash || '',
+          timestamp: formatTimestamp(item.timestamp),
+          createdAt: formatDatetime(item.createdAt),
+        })),
+        [
+          { key: 'paymentId', header: 'Payment ID' },
+          { key: 'fromAddress', header: 'Wallet Address' },
+          { key: 'displayName', header: 'Display Name' },
+          { key: 'valueUSDC', header: 'Amount (USDC)' },
+          { key: 'valueBaseUnits', header: 'Amount (Base Units)' },
+          { key: 'kind', header: 'Type' },
+          { key: 'actionKey', header: 'Action Key' },
+          { key: 'txHash', header: 'Transaction Hash' },
+          { key: 'timestamp', header: 'Timestamp' },
+          { key: 'createdAt', header: 'Created At' },
+        ]
+      );
+
+      downloadCsv(csv, `supports-${slug}-${new Date().toISOString().slice(0, 10)}.csv`);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const exportMembers = async () => {
+    if (!slug || !token) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/channels/${slug}/export/members`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to export members');
+      }
+
+      const data = await res.json();
+      const csv = generateCsv(
+        data.items.map((item: { id: string; fromAddress: string; displayName: string | null; planId: string; planName: string; expiresAt: string; revoked: boolean; active: boolean; createdAt: string }) => ({
+          id: item.id,
+          fromAddress: item.fromAddress,
+          displayName: item.displayName || '',
+          planName: item.planName,
+          status: item.active ? 'Active' : item.revoked ? 'Revoked' : 'Expired',
+          expiresAt: formatDatetime(item.expiresAt),
+          createdAt: formatDatetime(item.createdAt),
+        })),
+        [
+          { key: 'id', header: 'Membership ID' },
+          { key: 'fromAddress', header: 'Wallet Address' },
+          { key: 'displayName', header: 'Display Name' },
+          { key: 'planName', header: 'Plan' },
+          { key: 'status', header: 'Status' },
+          { key: 'expiresAt', header: 'Expires At' },
+          { key: 'createdAt', header: 'Created At' },
+        ]
+      );
+
+      downloadCsv(csv, `members-${slug}-${new Date().toISOString().slice(0, 10)}.csv`);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
   useEffect(() => {
     if (authenticated && activeTab === 'qa') {
       fetchItems();
@@ -778,6 +871,20 @@ export default function Dashboard() {
 
       {/* Supports Tab */}
       {activeTab === 'supports' && (
+        <>
+        <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'flex-end' }}>
+          <button
+            onClick={exportSupports}
+            style={{
+              background: '#10b981',
+              color: '#fff',
+              padding: '8px 16px',
+              fontSize: '14px',
+            }}
+          >
+            Export CSV
+          </button>
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
           {/* Leaderboard Section */}
           <div className="card">
@@ -959,10 +1066,25 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+        </>
       )}
 
       {/* Members Tab */}
       {activeTab === 'members' && (
+        <>
+        <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'flex-end' }}>
+          <button
+            onClick={exportMembers}
+            style={{
+              background: '#10b981',
+              color: '#fff',
+              padding: '8px 16px',
+              fontSize: '14px',
+            }}
+          >
+            Export CSV
+          </button>
+        </div>
         <div className="card">
           <h2 style={{ marginBottom: '16px' }}>Members</h2>
 
@@ -1077,6 +1199,7 @@ export default function Dashboard() {
             ))}
           </div>
         </div>
+        </>
       )}
 
       {/* Goals Tab */}

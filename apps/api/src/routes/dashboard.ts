@@ -1054,4 +1054,132 @@ router.post('/channels/:slug/goals/:goalId/reset', async (req, res, next) => {
   }
 });
 
+// T9.4: CSV Export endpoints
+
+// GET /api/channels/:slug/export/supports - Export all supports as CSV data (dashboard auth)
+router.get('/channels/:slug/export/supports', async (req, res, next) => {
+  try {
+    const { slug } = req.params;
+
+    const channel = await getChannelBySlug(slug);
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
+    // Get all settled payments
+    const rows = await queryAll<{
+      paymentId: string;
+      status: string;
+      fromAddress: string;
+      value: string;
+      txHash: string | null;
+      timestamp: string | null;
+      kind: string | null;
+      actionKey: string | null;
+      qaId: string | null;
+      createdAt: string;
+    }>(
+      `SELECT paymentId, status, fromAddress, value, txHash, timestamp, kind, actionKey, qaId, createdAt
+       FROM payments
+       WHERE channelId = ? AND status = 'settled'
+       ORDER BY timestamp DESC`,
+      [channel.id]
+    );
+
+    // Resolve display names
+    const addresses = [...new Set(rows.map((r) => r.fromAddress))];
+    const displayNames = new Map<string, string>();
+
+    if (addresses.length > 0) {
+      const profileRows = await queryAll<{ address: string; displayName: string }>(
+        `SELECT address, displayName FROM wallet_profiles WHERE address IN (${addresses.map(() => '?').join(',')})`,
+        addresses
+      );
+      for (const p of profileRows) {
+        displayNames.set(p.address, p.displayName);
+      }
+    }
+
+    const items = rows.map((row) => ({
+      paymentId: row.paymentId,
+      fromAddress: row.fromAddress,
+      displayName: displayNames.get(row.fromAddress) || null,
+      value: row.value,
+      kind: row.kind,
+      actionKey: row.actionKey,
+      qaId: row.qaId,
+      txHash: row.txHash,
+      timestamp: row.timestamp ? Number(row.timestamp) : null,
+      createdAt: row.createdAt,
+    }));
+
+    res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/channels/:slug/export/members - Export all members as CSV data (dashboard auth)
+router.get('/channels/:slug/export/members', async (req, res, next) => {
+  try {
+    const { slug } = req.params;
+
+    const channel = await getChannelBySlug(slug);
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
+    const rows = await queryAll<MembershipRow & { planName: string }>(
+      `SELECT m.*, p.name as planName
+       FROM memberships m
+       JOIN membership_plans p ON m.planId = p.id
+       WHERE m.channelId = ?
+       ORDER BY m.createdAt DESC`,
+      [channel.id]
+    );
+
+    const now = new Date();
+    const items = rows.map((row) => {
+      const expiresAt = new Date(row.expiresAt);
+      const isActive = !row.revoked && expiresAt > now;
+
+      return {
+        id: row.id,
+        fromAddress: row.fromAddress,
+        planId: row.planId,
+        planName: row.planName,
+        expiresAt: row.expiresAt,
+        revoked: row.revoked === 1,
+        active: isActive,
+        createdAt: row.createdAt,
+      };
+    });
+
+    // Resolve display names
+    const addresses = [...new Set(items.map((r) => r.fromAddress))];
+    const displayNames = new Map<string, string>();
+
+    if (addresses.length > 0) {
+      const profileRows = await queryAll<{ address: string; displayName: string }>(
+        `SELECT address, displayName FROM wallet_profiles WHERE address IN (${addresses.map(() => '?').join(',')})`,
+        addresses
+      );
+      for (const p of profileRows) {
+        displayNames.set(p.address, p.displayName);
+      }
+    }
+
+    const itemsWithNames = items.map((item) => ({
+      ...item,
+      displayName: displayNames.get(item.fromAddress) || null,
+    }));
+
+    res.json({ items: itemsWithNames });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;
