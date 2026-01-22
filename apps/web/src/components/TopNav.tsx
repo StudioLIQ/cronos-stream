@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import type { ReactNode } from 'react';
+import { ThemeToggle } from './ThemeToggle';
 
 export function TopNav({ children }: { children?: ReactNode }) {
   return (
@@ -16,6 +17,7 @@ export function TopNav({ children }: { children?: ReactNode }) {
           Stream402
         </Link>
         {children}
+        <ThemeToggle />
       </div>
     </header>
   );

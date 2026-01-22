@@ -7,6 +7,7 @@ import Overlay from './routes/Overlay';
 import Dashboard from './routes/Dashboard';
 import { ToastProvider, ToastHost } from './components/Toast';
 import { StatusBar } from './components/StatusBar';
+import { ThemeProvider } from './contexts/ThemeContext';
 import './index.css';
 
 function ConditionalToastHost() {
@@ -29,18 +30,20 @@ function ConditionalStatusBar() {
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <ToastProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/v/:slug" element={<Viewer />} />
-          <Route path="/o/:slug" element={<Overlay />} />
-          <Route path="/d/:slug" element={<Dashboard />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-        <ConditionalToastHost />
-        <ConditionalStatusBar />
-      </BrowserRouter>
-    </ToastProvider>
+    <ThemeProvider>
+      <ToastProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/v/:slug" element={<Viewer />} />
+            <Route path="/o/:slug" element={<Overlay />} />
+            <Route path="/d/:slug" element={<Dashboard />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+          <ConditionalToastHost />
+          <ConditionalStatusBar />
+        </BrowserRouter>
+      </ToastProvider>
+    </ThemeProvider>
   </React.StrictMode>
 );
