@@ -42,6 +42,17 @@ button {
   background: var(--panel-2);
   color: var(--text);
   border: 1px solid var(--border);
+  transition: all 150ms ease;
+}
+
+button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  filter: brightness(1.1);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(0);
+  filter: brightness(0.95);
 }
 
 button:disabled {
@@ -58,9 +69,14 @@ input, textarea, select {
   font-size: 14px;
 }
 
+input, textarea, select {
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
 input:focus, textarea:focus, select:focus {
   outline: none;
   border-color: rgba(0, 231, 160, 0.6);
+  box-shadow: 0 0 0 3px rgba(0, 231, 160, 0.1);
 }
 
 .container {
@@ -75,6 +91,20 @@ input:focus, textarea:focus, select:focus {
   padding: 16px;
   margin-bottom: 16px;
   border: 1px solid var(--border);
+  transition: border-color 200ms ease, box-shadow 200ms ease;
+}
+
+.card:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.card-interactive {
+  cursor: pointer;
+}
+
+.card-interactive:hover {
+  border-color: rgba(0, 231, 160, 0.25);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
 .status-badge {
@@ -332,4 +362,100 @@ input:focus, textarea:focus, select:focus {
 
 .empty-state-action {
   margin-top: 20px;
+}
+
+/* Motion utilities */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 200ms ease;
+}
+
+.animate-slide-up {
+  animation: slide-up 250ms ease;
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 250ms ease;
+}
+
+.animate-scale-in {
+  animation: scale-in 200ms ease;
+}
+
+.animate-pulse {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* Badge animations */
+.badge-live {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* Modal backdrop */
+.modal-backdrop {
+  animation: fade-in 150ms ease;
+}
+
+.modal-content {
+  animation: scale-in 200ms ease;
+}
+
+/* Tab transitions */
+.tab-content {
+  animation: fade-in 150ms ease;
+}
+
+/* Status badge pulse for showing state */
+.status-badge.showing {
+  animation: pulse 1.5s ease-in-out infinite;
 }
