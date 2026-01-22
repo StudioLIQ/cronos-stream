@@ -9,6 +9,7 @@ import { ToastProvider, ToastHost } from './components/Toast';
 import { StatusBar } from './components/StatusBar';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { CommandPalette } from './components/CommandPalette';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import './index.css';
 
 function ConditionalToastHost() {
@@ -40,6 +41,7 @@ function ConditionalCommandPalette() {
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
+    <ErrorBoundary>
     <ThemeProvider>
       <ToastProvider>
         <BrowserRouter>
@@ -56,5 +58,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         </BrowserRouter>
       </ToastProvider>
     </ThemeProvider>
+    </ErrorBoundary>
   </React.StrictMode>
 );
