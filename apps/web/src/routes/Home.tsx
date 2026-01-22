@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { FEATURED_STREAMS } from '../data/featuredStreams';
 import { TopNav } from '../components/TopNav';
 import { youtubeThumbnailUrl } from '../lib/youtube';
+import { EmptyState } from '../components/EmptyState';
 
 export default function Home() {
   const [query, setQuery] = useState('');
@@ -192,6 +193,24 @@ export default function Home() {
         <div className="page-header">
           <h2 style={{ fontSize: '22px', fontWeight: 700 }}>Live Streams</h2>
         </div>
+
+        {filtered.length === 0 && query.trim() !== '' && (
+          <div className="card" style={{ marginTop: '18px' }}>
+            <EmptyState
+              icon="🔍"
+              title="No streams found"
+              description={`No streams match "${query}". Try a different search term.`}
+              action={
+                <button
+                  onClick={() => setQuery('')}
+                  style={{ background: '#3b82f6', color: '#fff' }}
+                >
+                  Clear Search
+                </button>
+              }
+            />
+          </div>
+        )}
 
         <div className="stream-grid" style={{ marginTop: '18px' }}>
           {filtered.map((stream) => {

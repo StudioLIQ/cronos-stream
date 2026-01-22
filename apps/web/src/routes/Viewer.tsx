@@ -10,6 +10,8 @@ import { getFeaturedStreamBySlug } from '../data/featuredStreams';
 import { toYouTubeEmbedUrl } from '../lib/youtube';
 import { useToasts } from '../components/Toast';
 import { copyToClipboard } from '../lib/clipboard';
+import { ActionButtonSkeleton, Skeleton } from '../components/Skeleton';
+import { EmptyState } from '../components/EmptyState';
 
 type PaymentState = 'idle' | 'needs_payment' | 'signing' | 'settling' | 'done' | 'error';
 
@@ -553,7 +555,39 @@ Expires At: ${nonceData.expiresAt}`;
     return (
       <div>
         <TopNav />
-        <div className="container"><p>Loading...</p></div>
+        <div className="container">
+          <header style={{ marginBottom: '24px' }}>
+            <Skeleton width={200} height={28} style={{ marginBottom: 8 }} />
+            <Skeleton width={140} height={14} />
+          </header>
+          <div className="viewer-grid">
+            <div className="viewer-main">
+              <section>
+                <Skeleton width={60} height={22} style={{ marginBottom: 12 }} />
+                <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                  <Skeleton height={0} style={{ paddingTop: '56.25%' }} borderRadius={0} />
+                </div>
+              </section>
+              <section style={{ marginTop: '24px' }}>
+                <Skeleton width={80} height={22} style={{ marginBottom: 12 }} />
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '12px' }}>
+                  <ActionButtonSkeleton />
+                  <ActionButtonSkeleton />
+                  <ActionButtonSkeleton />
+                  <ActionButtonSkeleton />
+                </div>
+              </section>
+            </div>
+            <aside className="viewer-side">
+              <section>
+                <Skeleton width={100} height={22} style={{ marginBottom: 12 }} />
+                <div className="card">
+                  <Skeleton height={100} />
+                </div>
+              </section>
+            </aside>
+          </div>
+        </div>
       </div>
     );
   }
@@ -663,6 +697,15 @@ Expires At: ${nonceData.expiresAt}`;
             <p style={{ marginTop: '8px', color: '#888', fontSize: '14px' }}>
               Effects appear on the streamer overlay: <a href={`/o/${slug}`} style={{ color: '#3b82f6' }}>/o/{slug}</a>
             </p>
+            {actions.length === 0 ? (
+              <div className="card" style={{ marginTop: '12px' }}>
+                <EmptyState
+                  icon="🎬"
+                  title="No effects available"
+                  description="This channel hasn't set up any paid effects yet. Check back later or try the donation or Q&A features."
+                />
+              </div>
+            ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '12px', marginTop: '12px' }}>
               {actions.map((action) => (
                 <button
@@ -690,6 +733,7 @@ Expires At: ${nonceData.expiresAt}`;
                 </button>
               ))}
             </div>
+            )}
 
             {paymentState !== 'idle' && (
               <div className="card" style={{ marginTop: '16px' }}>
@@ -725,6 +769,18 @@ Expires At: ${nonceData.expiresAt}`;
 
         <aside className="viewer-side">
           {/* Membership Section */}
+          {membershipPlans.length === 0 && (
+            <section>
+              <h2>Membership</h2>
+              <div className="card" style={{ marginTop: '12px' }}>
+                <EmptyState
+                  icon="🎖️"
+                  title="No membership plans"
+                  description="This channel hasn't set up membership tiers yet. You can still support them with donations and Q&A."
+                />
+              </div>
+            </section>
+          )}
           {membershipPlans.length > 0 && (
             <section>
               <h2>Membership</h2>

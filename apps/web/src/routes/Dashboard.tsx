@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { connectSSE } from '../lib/sse';
+import { QaItemSkeleton, LeaderboardItemSkeleton, MemberItemSkeleton, GoalItemSkeleton } from '../components/Skeleton';
+import { EmptyState } from '../components/EmptyState';
 
 interface QaItem {
   id: string;
@@ -659,10 +661,24 @@ export default function Dashboard() {
       {/* Q&A Tab */}
       {activeTab === 'qa' && (
         <>
-          {loading && <p>Loading...</p>}
+          {loading && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <QaItemSkeleton />
+              <QaItemSkeleton />
+              <QaItemSkeleton />
+            </div>
+          )}
 
           {!loading && items.length === 0 && (
-            <p style={{ color: '#888' }}>No items with status: {filter}</p>
+            <EmptyState
+              icon={filter === 'queued' ? '📥' : filter === 'answered' ? '✅' : '📋'}
+              title={`No ${filter} questions`}
+              description={
+                filter === 'queued'
+                  ? 'New questions from viewers will appear here. Share your viewer page to start receiving paid Q&As.'
+                  : `Questions that have been ${filter} will appear here.`
+              }
+            />
           )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -780,10 +796,22 @@ export default function Dashboard() {
               ))}
             </div>
 
-            {leaderboardLoading && <p>Loading...</p>}
+            {leaderboardLoading && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <LeaderboardItemSkeleton />
+                <LeaderboardItemSkeleton />
+                <LeaderboardItemSkeleton />
+                <LeaderboardItemSkeleton />
+                <LeaderboardItemSkeleton />
+              </div>
+            )}
 
             {!leaderboardLoading && leaderboard.length === 0 && (
-              <p style={{ color: '#888' }}>No supporters yet</p>
+              <EmptyState
+                icon="🏆"
+                title="No supporters yet"
+                description="When viewers support your stream, the top supporters will appear here."
+              />
             )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -846,10 +874,26 @@ export default function Dashboard() {
               </button>
             </div>
 
-            {walletSupportsLoading && <p>Loading...</p>}
+            {walletSupportsLoading && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <LeaderboardItemSkeleton />
+                <LeaderboardItemSkeleton />
+                <LeaderboardItemSkeleton />
+              </div>
+            )}
 
             {!walletSupportsLoading && walletLookup && walletSupports.length === 0 && (
-              <p style={{ color: '#888' }}>No supports found for this wallet</p>
+              <EmptyState
+                icon="🔍"
+                title="No supports found"
+                description="This wallet hasn't made any supports to this channel yet."
+              />
+            )}
+
+            {!walletSupportsLoading && !walletLookup && (
+              <p style={{ color: '#888', fontSize: '14px', textAlign: 'center', padding: '24px 0' }}>
+                Enter a wallet address above to see their support history.
+              </p>
             )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '400px', overflowY: 'auto' }}>
@@ -954,10 +998,24 @@ export default function Dashboard() {
             </button>
           </div>
 
-          {membersLoading && <p>Loading...</p>}
+          {membersLoading && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <MemberItemSkeleton />
+              <MemberItemSkeleton />
+              <MemberItemSkeleton />
+            </div>
+          )}
 
           {!membersLoading && members.length === 0 && (
-            <p style={{ color: '#888' }}>No members found</p>
+            <EmptyState
+              icon="👥"
+              title="No members yet"
+              description={
+                memberFilter === 'active'
+                  ? 'Active channel members will appear here. Set up membership plans to start accepting subscribers.'
+                  : `No ${memberFilter} members found.`
+              }
+            />
           )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -1030,10 +1088,27 @@ export default function Dashboard() {
             </button>
           </div>
 
-          {goalsLoading && <p>Loading...</p>}
+          {goalsLoading && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <GoalItemSkeleton />
+              <GoalItemSkeleton />
+            </div>
+          )}
 
           {!goalsLoading && goals.length === 0 && (
-            <p style={{ color: '#888' }}>No goals created yet. Create a goal to display progress on the overlay.</p>
+            <EmptyState
+              icon="🎯"
+              title="No goals created"
+              description="Create donation or membership goals to track progress and display them on your stream overlay."
+              action={
+                <button
+                  onClick={() => setShowGoalForm(true)}
+                  style={{ background: '#10b981', color: '#fff', padding: '10px 20px' }}
+                >
+                  Create Your First Goal
+                </button>
+              }
+            />
           )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
