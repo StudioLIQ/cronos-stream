@@ -6,6 +6,8 @@ import { EmptyState } from '../components/EmptyState';
 import { ShareLinks } from '../components/ShareLinks';
 import { generateCsv, downloadCsv, formatTimestamp, formatDatetime } from '../lib/csv';
 import { TopNav } from '../components/TopNav';
+import { API_BASE } from '../lib/config';
+import { copyToClipboard } from '../lib/clipboard';
 
 interface QaItem {
   id: string;
@@ -20,6 +22,14 @@ interface QaItem {
   createdAt: string;
   shownAt: string | null;
   closedAt: string | null;
+}
+
+interface QaCopilotAssist {
+  summary: string;
+  answer: string;
+  followUps: string[];
+  tags: string[];
+  provider: string;
 }
 
 interface QaCreatedEvent {
@@ -116,8 +126,6 @@ interface GoalItem {
   updatedAt: string;
 }
 
-const API_BASE = '/api';
-
 function formatUSDC(baseUnits: string): string {
   const num = BigInt(baseUnits);
   const whole = num / BigInt(1000000);
@@ -134,6 +142,10 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'queued' | 'showing' | 'answered' | 'skipped' | 'blocked'>('queued');
+  const [qaAssistById, setQaAssistById] = useState<Record<string, QaCopilotAssist>>({});
+  const [qaAssistErrorById, setQaAssistErrorById] = useState<Record<string, string>>({});
+  const [qaAssistLoadingId, setQaAssistLoadingId] = useState<string | null>(null);
+  const [qaAssistCopiedId, setQaAssistCopiedId] = useState<string | null>(null);
 
   // Stream config state
   const [streamEmbedInput, setStreamEmbedInput] = useState('');
@@ -827,6 +839,46 @@ export default function Dashboard() {
     }
   };
 
+  const handleQaAssist = async (qaId: string) => {
+    if (!slug || !token) return;
+    setQaAssistLoadingId(qaId);
+    setQaAssistErrorById((prev) => {
+      const next = { ...prev };
+      delete next[qaId];
+      return next;
+    });
+
+    try {
+      const res = await fetch(`${API_BASE}/channels/${slug}/qa/${qaId}/assist`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to get AI assist');
+      }
+
+      setQaAssistById((prev) => ({ ...prev, [qaId]: data.assist as QaCopilotAssist }));
+    } catch (err) {
+      setQaAssistErrorById((prev) => ({ ...prev, [qaId]: (err as Error).message }));
+    } finally {
+      setQaAssistLoadingId(null);
+    }
+  };
+
+  const handleCopyAssistAnswer = async (qaId: string) => {
+    const assist = qaAssistById[qaId];
+    if (!assist) return;
+    const ok = await copyToClipboard(assist.answer);
+    if (ok) {
+      setQaAssistCopiedId(qaId);
+      window.setTimeout(() => setQaAssistCopiedId(null), 1000);
+    }
+  };
+
   if (!authenticated) {
     return (
       <div>
@@ -1160,6 +1212,61 @@ export default function Dashboard() {
                   {item.displayName || item.fromAddress.slice(0, 8) + '...'}
                 </p>
                 <p style={{ marginBottom: '16px', lineHeight: 1.5 }}>{item.message}</p>
+
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
+                  <button
+                    onClick={() => handleQaAssist(item.id)}
+                    disabled={qaAssistLoadingId === item.id}
+                    style={{ background: 'var(--panel-2)', border: '1px solid var(--border)', color: 'var(--text)' }}
+                  >
+                    {qaAssistLoadingId === item.id ? 'AI...' : 'AI Assist'}
+                  </button>
+                  {qaAssistById[item.id] && (
+                    <button
+                      onClick={() => handleCopyAssistAnswer(item.id)}
+                      style={{ background: 'var(--panel-2)', border: '1px solid var(--border)', color: 'var(--text)' }}
+                    >
+                      {qaAssistCopiedId === item.id ? 'Copied' : 'Copy Answer'}
+                    </button>
+                  )}
+                </div>
+
+                {qaAssistErrorById[item.id] && (
+                  <p style={{ marginBottom: '12px', color: 'var(--danger)', fontSize: '12px' }}>
+                    AI: {qaAssistErrorById[item.id]}
+                  </p>
+                )}
+
+                {qaAssistById[item.id] && (
+                  <div
+                    style={{
+                      marginBottom: '12px',
+                      padding: '10px',
+                      border: '1px solid var(--border)',
+                      borderRadius: '8px',
+                      background: 'var(--panel-2)',
+                    }}
+                  >
+                    <p style={{ margin: 0, color: 'var(--muted)', fontSize: '12px' }}>AI Copilot</p>
+                    <p style={{ marginTop: '8px', marginBottom: '8px' }}>
+                      <span style={{ color: 'var(--muted)', fontSize: '12px' }}>Summary:</span>{' '}
+                      {qaAssistById[item.id].summary}
+                    </p>
+                    <p style={{ margin: 0, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{qaAssistById[item.id].answer}</p>
+                    {qaAssistById[item.id].followUps?.length > 0 && (
+                      <div style={{ marginTop: '10px' }}>
+                        <p style={{ margin: 0, color: 'var(--muted)', fontSize: '12px' }}>Follow-ups</p>
+                        <ul style={{ marginTop: '6px', marginBottom: 0, paddingLeft: '18px' }}>
+                          {qaAssistById[item.id].followUps.map((q, idx) => (
+                            <li key={idx} style={{ fontSize: '13px', marginBottom: '4px' }}>
+                              {q}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {filter === 'queued' && (
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>

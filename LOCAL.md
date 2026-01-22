@@ -111,6 +111,15 @@ DB_NAME=stream402
 # MEMBERSHIP_NFT_ADDRESS_CRONOS_MAINNET=0x...
 # MEMBERSHIP_NFT_MINTER_PRIVATE_KEY=0x...
 
+# (선택) 로컬 AI (Ollama) — Q&A Copilot + moderation
+# - Dashboard의 Q&A 카드에서 "AI Assist" 버튼이 동작합니다.
+# - 로컬에서만 무료로 쓰는 용도(서버에 Ollama가 떠 있어야 함)
+# OLLAMA_URL=http://127.0.0.1:11434
+# OLLAMA_ASSIST_MODEL=llama3.2:3b
+# MODERATION_PROVIDER=ollama
+# OLLAMA_MODEL=llama3.2:1b
+# OLLAMA_TIMEOUT_MS=4000
+
 # (옵션) 단일 URL로 쓰고 싶으면 아래로 대체 가능
 # DATABASE_URL=mysql://stream402:stream402@127.0.0.1:3307/stream402
 ```
@@ -129,6 +138,26 @@ DB_NAME=stream402
 
 토큰 ID는 채널 slug 기반으로 결정됩니다:
 - `tokenId = keccak256("stream402:membership:<slug>")` (uint256)
+
+---
+
+## (선택) 로컬 AI(Ollama) 설정
+
+Dashboard Q&A에서 **요약/답변 초안**을 뽑는 Copilot 기능을 로컬 Ollama로 돌릴 수 있습니다.
+
+1) Ollama 실행
+2) 모델 준비(예시):
+
+```bash
+ollama pull llama3.2:3b
+```
+
+3) `apps/api/.env`에 아래 추가 후 API 재시작:
+
+```env
+OLLAMA_URL=http://127.0.0.1:11434
+OLLAMA_ASSIST_MODEL=llama3.2:3b
+```
 
 ### 2-2) 데모/테스트넷 공용 설정(옵션)
 

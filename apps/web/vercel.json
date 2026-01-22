@@ -1,10 +1,6 @@
 {
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "<railway-origin>/api/$1"
-    },
-    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

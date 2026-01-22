@@ -13,6 +13,7 @@ import {
   getMembershipTokenId,
   isMembershipNftConfigured,
 } from '../lib/membershipNft.js';
+import { getQaCopilotSuggestion } from '../agent/qaCopilot.js';
 
 const router = Router();
 
@@ -297,6 +298,44 @@ router.post('/channels/:slug/qa/:id/state', async (req, res, next) => {
     }
 
     res.json({ ok: true, qaId: id, status: state === 'show' ? 'showing' : state });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/channels/:slug/qa/:id/assist - AI copilot suggestion for a Q&A item (dashboard auth)
+router.post('/channels/:slug/qa/:id/assist', async (req, res, next) => {
+  try {
+    const { slug, id } = req.params;
+
+    const channel = await getChannelBySlug(slug);
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
+    const qaItem = await queryOne<QaItemRow>(
+      'SELECT * FROM qa_items WHERE id = ? AND channelId = ?',
+      [id, channel.id]
+    );
+
+    if (!qaItem) {
+      res.status(404).json({ error: 'Q&A item not found' });
+      return;
+    }
+
+    try {
+      const assist = await getQaCopilotSuggestion({
+        message: qaItem.message,
+        displayName: qaItem.displayName,
+        tier: qaItem.tier,
+        isMember: qaItem.isMember === 1,
+      });
+
+      res.json({ ok: true, qaId: id, assist });
+    } catch (err) {
+      res.status(503).json({ error: 'AI copilot unavailable', reason: (err as Error).message });
+    }
   } catch (err) {
     next(err);
   }

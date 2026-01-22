@@ -101,9 +101,10 @@ Railway 서비스 설정에서 다음을 사용합니다:
 
 ## 4) (선택) Web 배포
 
-### 4-1) Vercel + /api 프록시 (기존 방식)
+### 4-1) Vercel (권장: API URL을 환경변수로 설정)
 
-- `apps/web/vercel.json`에서 `<railway-origin>`만 실제 Railway 도메인으로 교체
+- Vercel Project → **Environment Variables**에 아래 추가:
+  - `VITE_API_URL=https://<railway-domain>/api`
 - Viewer/Overlay/Dashboard:
   - `https://<vercel-domain>/v/demo`
   - `https://<vercel-domain>/o/demo`

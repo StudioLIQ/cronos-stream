@@ -32,6 +32,8 @@ See `DEPLOY.md` for the full checklist.
 - Web: Vercel (Root Directory: `apps/web`)
 - API: Railway (`apps/api`)
 
+For Vercel, set `VITE_API_URL` (example: `https://<railway-domain>/api`) so the web can call the API from a different origin.
+
 ### Environment Variables
 
 The API auto-loads (in order): `apps/api/.env.local`, `apps/api/.env`, `apps/api/.env.railway`, `apps/api/.env.demo`.

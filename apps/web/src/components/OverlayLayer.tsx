@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { connectSSE } from '../lib/sse';
 import { formatUsdcAmount } from '../lib/x402';
+import { API_BASE } from '../lib/config';
 
 interface EffectEvent {
   eventId: string;
@@ -137,7 +138,7 @@ export function OverlayLayer({ slug, position = 'absolute', zIndex = 10 }: Overl
   useEffect(() => {
     async function fetchGoals() {
       try {
-        const res = await fetch(`/api/channels/${slug}/goals/active`);
+        const res = await fetch(`${API_BASE}/channels/${slug}/goals/active`);
         if (res.ok) {
           const data = await res.json();
           setGoals(data.items || []);
@@ -150,7 +151,7 @@ export function OverlayLayer({ slug, position = 'absolute', zIndex = 10 }: Overl
   }, [slug]);
 
   useEffect(() => {
-    const eventSource = connectSSE(`/api/channels/${slug}/stream/overlay`, (eventName, data) => {
+    const eventSource = connectSSE(`${API_BASE}/channels/${slug}/stream/overlay`, (eventName, data) => {
       if (eventName === 'effect.triggered') {
         handleEffect(data as EffectEvent);
       } else if (eventName === 'qa.show') {

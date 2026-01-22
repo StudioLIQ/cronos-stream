@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { API_BASE } from '../lib/config';
 
 interface StatusData {
   status: string;
@@ -15,7 +16,7 @@ export function StatusBar() {
   useEffect(() => {
     const checkStatus = async () => {
       try {
-        const res = await fetch('/api/status');
+        const res = await fetch(`${API_BASE}/status`);
         if (res.ok) {
           const data = await res.json();
           setStatusData(data);

@@ -57,6 +57,7 @@ export default function Viewer() {
   const { addToast } = useToasts();
   const { fireSuccess } = useConfetti();
   const { address: walletAddress, signer: walletSigner, isConnected: isWalletConnected } = useWallet();
+  const showAgentSection = import.meta.env.DEV || new URLSearchParams(window.location.search).has('agent');
   const [channel, setChannel] = useState<Channel | null>(null);
   const [actions, setActions] = useState<Action[]>([]);
   const [streamStatus, setStreamStatus] = useState<StreamStatusResponse | null>(null);
@@ -1257,8 +1258,9 @@ Expires At: ${nonceData.expiresAt}`;
             </div>
           </section>
 
-          {/* Agent Section */}
-          <section style={{ marginTop: '24px' }}>
+          {/* Agent Section (dev/hidden) */}
+          {showAgentSection && (
+            <section style={{ marginTop: '24px' }}>
             <h2>Agent (Local)</h2>
             <div className="card" style={{ marginTop: '12px' }}>
               <p style={{ color: 'var(--muted)', fontSize: '14px', lineHeight: 1.4 }}>
@@ -1366,7 +1368,8 @@ Expires At: ${nonceData.expiresAt}`;
                 </p>
               )}
             </div>
-          </section>
+            </section>
+          )}
 
           {/* My Supports Section */}
           {isWalletConnected && (
