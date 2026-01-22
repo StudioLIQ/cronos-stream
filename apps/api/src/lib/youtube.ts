@@ -48,7 +48,6 @@ export function toYouTubeEmbedUrl(input: string): string | null {
   const host = normalizeYouTubeHost(url.hostname);
   if (!host) return null;
 
-  // Convert common YouTube URLs to embed URLs.
   if (host === 'youtu.be') {
     const videoId = url.pathname.replace(/^\//, '').split('/')[0];
     if (!videoId || !YOUTUBE_VIDEO_ID_RE.test(videoId)) return null;
@@ -61,7 +60,7 @@ export function toYouTubeEmbedUrl(input: string): string | null {
       return `https://www.youtube.com${url.pathname}${url.search}`;
     }
 
-    // /embed/live_stream?channel=UC...
+    // /live_stream?channel=UC...
     if (url.pathname === '/live_stream') {
       const channelId = url.searchParams.get('channel');
       if (!channelId || !YOUTUBE_CHANNEL_ID_RE.test(channelId)) return null;
@@ -106,55 +105,3 @@ export function toYouTubeEmbedUrl(input: string): string | null {
   return null;
 }
 
-export function extractYouTubeVideoId(input: string): string | null {
-  const trimmed = input.trim();
-  if (!trimmed) return null;
-
-  // video id (11 chars)
-  if (YOUTUBE_VIDEO_ID_RE.test(trimmed)) return trimmed;
-
-  const url = parseUrlLoose(trimmed);
-  if (!url) return null;
-
-  const host = normalizeYouTubeHost(url.hostname);
-  if (!host) return null;
-
-  if (host === 'youtu.be') {
-    const id = url.pathname.replace(/^\//, '').split('/')[0];
-    return id && YOUTUBE_VIDEO_ID_RE.test(id) ? id : null;
-  }
-
-  if (host === 'youtube.com') {
-    if (url.pathname === '/watch') {
-      const id = url.searchParams.get('v');
-      return id && YOUTUBE_VIDEO_ID_RE.test(id) ? id : null;
-    }
-    if (url.pathname.startsWith('/embed/')) {
-      const id = url.pathname.split('/')[2] || null;
-      return id && YOUTUBE_VIDEO_ID_RE.test(id) ? id : null;
-    }
-    if (url.pathname.startsWith('/live/')) {
-      const id = url.pathname.split('/')[2] || null;
-      return id && YOUTUBE_VIDEO_ID_RE.test(id) ? id : null;
-    }
-    if (url.pathname.startsWith('/shorts/')) {
-      const id = url.pathname.split('/')[2] || null;
-      return id && YOUTUBE_VIDEO_ID_RE.test(id) ? id : null;
-    }
-  }
-
-  if (host === 'youtube-nocookie.com') {
-    if (url.pathname.startsWith('/embed/')) {
-      const id = url.pathname.split('/')[2] || null;
-      return id && YOUTUBE_VIDEO_ID_RE.test(id) ? id : null;
-    }
-  }
-
-  return null;
-}
-
-export function youtubeThumbnailUrl(input: string): string | null {
-  const videoId = extractYouTubeVideoId(input);
-  if (!videoId) return null;
-  return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
-}

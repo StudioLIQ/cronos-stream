@@ -58,11 +58,11 @@ export function useToasts() {
   return context;
 }
 
-const typeStyles: Record<ToastType, { background: string; border: string; icon: string }> = {
-  info: { background: 'rgba(59, 130, 246, 0.95)', border: '#3b82f6', icon: 'i' },
-  success: { background: 'rgba(16, 185, 129, 0.95)', border: '#10b981', icon: '\u2713' },
-  warning: { background: 'rgba(245, 158, 11, 0.95)', border: '#f59e0b', icon: '!' },
-  error: { background: 'rgba(239, 68, 68, 0.95)', border: '#ef4444', icon: '\u2717' },
+const typeStyles: Record<ToastType, { background: string; border: string; text: string; icon: string }> = {
+  info: { background: 'rgba(92, 191, 251, 0.95)', border: '#5cbffb', text: '#0e0f10', icon: 'i' },
+  success: { background: 'rgba(0, 248, 137, 0.95)', border: '#00f889', text: '#0e0f10', icon: '\u2713' },
+  warning: { background: 'rgba(242, 218, 0, 0.95)', border: '#f2da00', text: '#0e0f10', icon: '!' },
+  error: { background: 'rgba(224, 32, 32, 0.95)', border: '#e02020', text: '#fff', icon: '\u2717' },
 };
 
 export function ToastHost() {
@@ -86,12 +86,13 @@ export function ToastHost() {
     >
       {toasts.map((toast) => {
         const style = typeStyles[toast.type];
+        const isDarkText = style.text !== '#fff';
         return (
           <div
             key={toast.id}
             style={{
               background: style.background,
-              color: '#fff',
+              color: style.text,
               padding: '12px 16px',
               borderRadius: '8px',
               borderLeft: `4px solid ${style.border}`,
@@ -108,7 +109,7 @@ export function ToastHost() {
                 width: '24px',
                 height: '24px',
                 borderRadius: '50%',
-                background: 'rgba(255, 255, 255, 0.2)',
+                background: isDarkText ? 'rgba(0, 0, 0, 0.12)' : 'rgba(255, 255, 255, 0.2)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -125,7 +126,7 @@ export function ToastHost() {
               style={{
                 background: 'transparent',
                 border: 'none',
-                color: 'rgba(255, 255, 255, 0.7)',
+                color: isDarkText ? 'rgba(14, 15, 16, 0.7)' : 'rgba(255, 255, 255, 0.7)',
                 cursor: 'pointer',
                 padding: '4px',
                 fontSize: '16px',

@@ -36,8 +36,8 @@ export default function Home() {
       {/* Hero Section */}
       <section
         style={{
-          background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(59, 130, 246, 0.1) 100%)',
-          borderBottom: '1px solid #2a2a2a',
+          background: 'var(--hero-bg)',
+          borderBottom: '1px solid var(--border)',
           padding: '48px 24px',
         }}
       >
@@ -45,7 +45,7 @@ export default function Home() {
           <h1 style={{ fontSize: '36px', fontWeight: 800, marginBottom: '16px', lineHeight: 1.2 }}>
             Paid Interactions for Streamers
           </h1>
-          <p style={{ fontSize: '18px', color: '#a1a1aa', marginBottom: '32px', lineHeight: 1.6 }}>
+          <p style={{ fontSize: '18px', color: 'var(--muted)', marginBottom: '32px', lineHeight: 1.6 }}>
             Let viewers support you with USDC payments. Effects, Q&A, donations - all settled on-chain via x402.
           </p>
           <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
@@ -55,8 +55,8 @@ export default function Home() {
                 display: 'inline-flex',
                 alignItems: 'center',
                 padding: '14px 28px',
-                background: '#6366f1',
-                color: '#fff',
+                background: 'var(--primary)',
+                color: 'var(--primary-text)',
                 borderRadius: '8px',
                 fontWeight: 600,
                 fontSize: '16px',
@@ -72,8 +72,8 @@ export default function Home() {
                 alignItems: 'center',
                 padding: '14px 28px',
                 background: 'transparent',
-                color: '#fff',
-                border: '1px solid #4a4a4a',
+                color: 'var(--text)',
+                border: '1px solid var(--border)',
                 borderRadius: '8px',
                 fontWeight: 600,
                 fontSize: '16px',
@@ -106,7 +106,7 @@ export default function Home() {
                 width: '56px',
                 height: '56px',
                 borderRadius: '50%',
-                background: 'rgba(99, 102, 241, 0.2)',
+                background: 'rgba(0, 248, 137, 0.18)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -117,7 +117,7 @@ export default function Home() {
               1
             </div>
             <h3 style={{ fontWeight: 600, marginBottom: '8px' }}>Pay with Wallet</h3>
-            <p style={{ color: '#888', fontSize: '14px', lineHeight: 1.5 }}>
+            <p style={{ color: 'var(--muted)', fontSize: '14px', lineHeight: 1.5 }}>
               Connect your wallet and sign a transaction to trigger an effect or submit a question.
             </p>
           </div>
@@ -128,7 +128,7 @@ export default function Home() {
                 width: '56px',
                 height: '56px',
                 borderRadius: '50%',
-                background: 'rgba(59, 130, 246, 0.2)',
+                background: 'rgba(2, 127, 128, 0.18)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -139,7 +139,7 @@ export default function Home() {
               2
             </div>
             <h3 style={{ fontWeight: 600, marginBottom: '8px' }}>x402 Settlement</h3>
-            <p style={{ color: '#888', fontSize: '14px', lineHeight: 1.5 }}>
+            <p style={{ color: 'var(--muted)', fontSize: '14px', lineHeight: 1.5 }}>
               Payment is verified and settled on-chain using the x402 protocol. Instant confirmation.
             </p>
           </div>
@@ -150,7 +150,7 @@ export default function Home() {
                 width: '56px',
                 height: '56px',
                 borderRadius: '50%',
-                background: 'rgba(16, 185, 129, 0.2)',
+                background: 'rgba(0, 199, 110, 0.18)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -161,7 +161,7 @@ export default function Home() {
               3
             </div>
             <h3 style={{ fontWeight: 600, marginBottom: '8px' }}>See on Stream</h3>
-            <p style={{ color: '#888', fontSize: '14px', lineHeight: 1.5 }}>
+            <p style={{ color: 'var(--muted)', fontSize: '14px', lineHeight: 1.5 }}>
               Effects and questions appear on the OBS overlay in real-time. Streamer gets the USDC.
             </p>
           </div>
@@ -177,13 +177,13 @@ export default function Home() {
             flexWrap: 'wrap',
           }}
         >
-          <Link to="/v/demo" style={{ color: '#6366f1', fontSize: '14px' }}>
+          <Link to="/v/demo" style={{ color: 'var(--accent-text)', fontSize: '14px' }}>
             Viewer Page
           </Link>
-          <Link to="/o/demo" style={{ color: '#6366f1', fontSize: '14px' }}>
+          <Link to="/o/demo" style={{ color: 'var(--accent-text)', fontSize: '14px' }}>
             OBS Overlay
           </Link>
-          <Link to="/d/demo" style={{ color: '#6366f1', fontSize: '14px' }}>
+          <Link to="/d/demo" style={{ color: 'var(--accent-text)', fontSize: '14px' }}>
             Dashboard
           </Link>
         </div>
@@ -203,7 +203,7 @@ export default function Home() {
               action={
                 <button
                   onClick={() => setQuery('')}
-                  style={{ background: '#3b82f6', color: '#fff' }}
+                  style={{ background: 'var(--primary)', color: 'var(--primary-text)' }}
                 >
                   Clear Search
                 </button>

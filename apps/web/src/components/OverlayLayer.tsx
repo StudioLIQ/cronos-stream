@@ -317,11 +317,11 @@ export function OverlayLayer({ slug, position = 'absolute', zIndex = 10 }: Overl
 
   const getKindColor = (kind: string): string => {
     switch (kind) {
-      case 'effect': return '#10b981';
-      case 'qa': return '#3b82f6';
-      case 'donation': return '#f59e0b';
-      case 'membership': return '#6366f1';
-      default: return '#6b7280';
+      case 'effect': return '#00f889';
+      case 'qa': return '#5cbffb';
+      case 'donation': return '#f2da00';
+      case 'membership': return '#00ffa3';
+      default: return '#9da5b6';
     }
   };
 
@@ -407,7 +407,8 @@ export function OverlayLayer({ slug, position = 'absolute', zIndex = 10 }: Overl
                   padding: '2px 8px',
                   borderRadius: '4px',
                   fontSize: '12px',
-                  background: 'rgba(99, 102, 241, 0.9)',
+                  background: 'rgba(0, 248, 137, 0.9)',
+                  color: '#0e0f10',
                   fontWeight: 'bold',
                   textTransform: 'uppercase',
                 }}
@@ -437,7 +438,7 @@ export function OverlayLayer({ slug, position = 'absolute', zIndex = 10 }: Overl
             color: '#fff',
             padding: '18px 28px',
             borderRadius: '16px',
-            border: '2px solid #f59e0b',
+            border: '2px solid #f2da00',
             maxWidth: '80%',
             textAlign: 'center',
             animation: 'donation-pop 0.5s ease-out',
@@ -488,7 +489,8 @@ export function OverlayLayer({ slug, position = 'absolute', zIndex = 10 }: Overl
                     fontSize: '11px',
                     padding: '2px 6px',
                     borderRadius: '4px',
-                    background: goal.type === 'donation' ? '#f59e0b' : '#6366f1',
+                    background: goal.type === 'donation' ? '#f2da00' : '#00f889',
+                    color: '#0e0f10',
                     textTransform: 'uppercase',
                     fontWeight: 'bold',
                   }}
@@ -512,15 +514,15 @@ export function OverlayLayer({ slug, position = 'absolute', zIndex = 10 }: Overl
                     width: `${goal.progress}%`,
                     height: '100%',
                     background: goal.type === 'donation'
-                      ? 'linear-gradient(90deg, #f59e0b, #fbbf24)'
-                      : 'linear-gradient(90deg, #6366f1, #818cf8)',
+                      ? 'linear-gradient(90deg, #f2da00, #00f889)'
+                      : 'linear-gradient(90deg, #5cbffb, #00f889)',
                     borderRadius: '6px',
                     transition: 'width 0.5s ease-out',
                   }}
                 />
               </div>
               {/* Progress text */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#9ca3af' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#9da5b6' }}>
                 <span>
                   {goal.type === 'donation'
                     ? `$${formatUsdcAmount(goal.currentValue)}`
@@ -592,7 +594,7 @@ export function OverlayLayer({ slug, position = 'absolute', zIndex = 10 }: Overl
               </p>
             </div>
             <div style={{ textAlign: 'right', flexShrink: 0 }}>
-              <p style={{ fontSize: '14px', fontWeight: 700, color: '#10b981' }}>
+              <p style={{ fontSize: '14px', fontWeight: 700, color: getKindColor(alert.kind) }}>
                 ${formatUsdcAmount(alert.value)}
               </p>
             </div>
@@ -627,13 +629,12 @@ export function OverlayLayer({ slug, position = 'absolute', zIndex = 10 }: Overl
           100% { transform: translateX(0); opacity: 1; }
         }
 
-        @keyframes goal-pulse {
-          0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4); }
-          50% { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0); }
-          100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
-        }
-      `}</style>
+	        @keyframes goal-pulse {
+	          0% { box-shadow: 0 0 0 0 rgba(0, 248, 137, 0.35); }
+	          50% { box-shadow: 0 0 0 8px rgba(0, 248, 137, 0); }
+	          100% { box-shadow: 0 0 0 0 rgba(0, 248, 137, 0); }
+	        }
+	      `}</style>
     </div>
   );
 }
-

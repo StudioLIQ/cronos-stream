@@ -34,16 +34,16 @@ export function ShareLinks({ slug }: ShareLinksProps) {
             alignItems: 'center',
             gap: '8px',
             padding: '10px 12px',
-            background: '#1a1a1a',
+            background: 'var(--panel-2)',
             borderRadius: '8px',
           }}
         >
-          <span style={{ fontSize: '14px', color: '#888', minWidth: '60px' }}>Viewer:</span>
+          <span style={{ fontSize: '14px', color: 'var(--muted)', minWidth: '60px' }}>Viewer:</span>
           <code
             style={{
               flex: 1,
               fontSize: '13px',
-              color: '#6366f1',
+              color: 'var(--accent-text)',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
@@ -54,8 +54,8 @@ export function ShareLinks({ slug }: ShareLinksProps) {
           <button
             onClick={() => handleCopy(viewerUrl, 'viewer')}
             style={{
-              background: copiedLink === 'viewer' ? '#10b981' : '#3b82f6',
-              color: '#fff',
+              background: copiedLink === 'viewer' ? '#5cbffb' : 'var(--primary)',
+              color: 'var(--primary-text)',
               fontSize: '12px',
               padding: '6px 12px',
               whiteSpace: 'nowrap',
@@ -72,16 +72,16 @@ export function ShareLinks({ slug }: ShareLinksProps) {
             alignItems: 'center',
             gap: '8px',
             padding: '10px 12px',
-            background: '#1a1a1a',
+            background: 'var(--panel-2)',
             borderRadius: '8px',
           }}
         >
-          <span style={{ fontSize: '14px', color: '#888', minWidth: '60px' }}>Overlay:</span>
+          <span style={{ fontSize: '14px', color: 'var(--muted)', minWidth: '60px' }}>Overlay:</span>
           <code
             style={{
               flex: 1,
               fontSize: '13px',
-              color: '#f59e0b',
+              color: 'var(--accent-text)',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
@@ -92,8 +92,8 @@ export function ShareLinks({ slug }: ShareLinksProps) {
           <button
             onClick={() => handleCopy(overlayUrl, 'overlay')}
             style={{
-              background: copiedLink === 'overlay' ? '#10b981' : '#3b82f6',
-              color: '#fff',
+              background: copiedLink === 'overlay' ? '#5cbffb' : 'var(--primary)',
+              color: 'var(--primary-text)',
               fontSize: '12px',
               padding: '6px 12px',
               whiteSpace: 'nowrap',
@@ -110,8 +110,8 @@ export function ShareLinks({ slug }: ShareLinksProps) {
           onClick={() => setShowQR(!showQR)}
           style={{
             background: 'transparent',
-            color: '#888',
-            border: '1px solid #333',
+            color: 'var(--muted)',
+            border: '1px solid var(--border)',
             fontSize: '12px',
             width: '100%',
           }}
@@ -145,7 +145,7 @@ export function ShareLinks({ slug }: ShareLinksProps) {
               includeMargin={false}
             />
           </div>
-          <p style={{ fontSize: '12px', color: '#888', textAlign: 'center' }}>
+          <p style={{ fontSize: '12px', color: 'var(--muted)', textAlign: 'center' }}>
             Scan to open viewer page
           </p>
         </div>

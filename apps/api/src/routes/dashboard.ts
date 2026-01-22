@@ -6,6 +6,7 @@ import { config } from '../config.js';
 import { getChannelBySlug } from './public.js';
 import { broadcastToOverlay, broadcastToDashboard, broadcastToAll } from '../sse/broker.js';
 import { getEffectiveDisplayName } from './profile.js';
+import { toYouTubeEmbedUrl } from '../lib/youtube.js';
 
 const router = Router();
 
@@ -48,81 +49,16 @@ function normalizeStreamEmbedUrl(
     return { ok: true, url: null };
   }
 
-  // YouTube channel ID (preferred for "currently live" embeds)
-  if (/^UC[a-zA-Z0-9_-]{20,}$/.test(trimmed)) {
+  const embedUrl = toYouTubeEmbedUrl(trimmed);
+  if (!embedUrl) {
     return {
-      ok: true,
-      url: `https://www.youtube.com/embed/live_stream?channel=${encodeURIComponent(trimmed)}`,
+      ok: false,
+      error:
+        'Unsupported stream URL. Provide a YouTube channel ID (UC...), a YouTube video ID, or a YouTube URL.',
     };
   }
 
-  // YouTube video ID (11 chars)
-  if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) {
-    return { ok: true, url: `https://www.youtube.com/embed/${encodeURIComponent(trimmed)}` };
-  }
-
-  let url: URL;
-  try {
-    url = new URL(trimmed);
-  } catch {
-    return { ok: false, error: 'Invalid URL' };
-  }
-
-  if (url.protocol !== 'https:') {
-    return { ok: false, error: 'Only https URLs are allowed' };
-  }
-
-  const host = url.hostname.replace(/^www\./, '');
-
-  // Convert common YouTube URLs to embed URLs.
-  if (host === 'youtu.be') {
-    const videoId = url.pathname.replace(/^\//, '').split('/')[0];
-    if (!videoId) return { ok: false, error: 'Invalid youtu.be URL' };
-    return { ok: true, url: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}` };
-  }
-
-  if (host === 'youtube.com') {
-    // Already an embed URL
-    if (url.pathname.startsWith('/embed/')) {
-      return { ok: true, url: url.toString() };
-    }
-
-    // /watch?v=VIDEO_ID
-    if (url.pathname === '/watch') {
-      const videoId = url.searchParams.get('v');
-      if (!videoId) return { ok: false, error: 'Missing v= parameter' };
-      return { ok: true, url: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}` };
-    }
-
-    // /live/VIDEO_ID
-    if (url.pathname.startsWith('/live/')) {
-      const videoId = url.pathname.split('/')[2];
-      if (!videoId) return { ok: false, error: 'Invalid /live URL' };
-      return { ok: true, url: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}` };
-    }
-
-    // /channel/CHANNEL_ID
-    if (url.pathname.startsWith('/channel/')) {
-      const channelId = url.pathname.split('/')[2];
-      if (!channelId) return { ok: false, error: 'Invalid /channel URL' };
-      return {
-        ok: true,
-        url: `https://www.youtube.com/embed/live_stream?channel=${encodeURIComponent(channelId)}`,
-      };
-    }
-  }
-
-  if (host === 'youtube-nocookie.com') {
-    if (url.pathname.startsWith('/embed/')) {
-      return { ok: true, url: url.toString() };
-    }
-  }
-
-  return {
-    ok: false,
-    error:
-      'Unsupported stream URL. Provide a YouTube channel ID (UC...), a YouTube video ID, or a YouTube URL.',
-  };
+  return { ok: true, url: embedUrl };
 }
 
 interface QaItemRow {

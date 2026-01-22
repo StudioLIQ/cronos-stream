@@ -11,7 +11,7 @@ export function useConfetti() {
       particleCount: 100,
       spread: 70,
       origin: { x: 0.5, y: 0.6 },
-      colors: ['#00e7a0', '#3b82f6', '#f59e0b', '#6366f1', '#10b981'],
+      colors: ['#00f889', '#5cbffb', '#f2da00', '#00ffa3', '#027f80'],
       disableForReducedMotion: true,
     };
 
@@ -28,7 +28,7 @@ export function useConfetti() {
       angle: 60,
       spread: 55,
       origin: { x: 0 },
-      colors: ['#00e7a0', '#3b82f6', '#f59e0b'],
+      colors: ['#00f889', '#5cbffb', '#f2da00'],
       disableForReducedMotion: true,
     });
     // Right side
@@ -37,7 +37,7 @@ export function useConfetti() {
       angle: 120,
       spread: 55,
       origin: { x: 1 },
-      colors: ['#6366f1', '#10b981', '#f59e0b'],
+      colors: ['#00ffa3', '#027f80', '#f2da00'],
       disableForReducedMotion: true,
     });
   };
@@ -52,7 +52,7 @@ export function useConfetti() {
         angle: 60,
         spread: 55,
         origin: { x: 0 },
-        colors: ['#00e7a0', '#3b82f6', '#f59e0b'],
+        colors: ['#00f889', '#5cbffb', '#f2da00'],
         disableForReducedMotion: true,
       });
       confetti({
@@ -60,7 +60,7 @@ export function useConfetti() {
         angle: 120,
         spread: 55,
         origin: { x: 1 },
-        colors: ['#6366f1', '#10b981', '#f59e0b'],
+        colors: ['#00ffa3', '#027f80', '#f2da00'],
         disableForReducedMotion: true,
       });
 

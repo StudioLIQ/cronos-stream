@@ -95,12 +95,8 @@ export default function Viewer() {
 
   useEffect(() => {
     if (!slug) return;
-
-    const featured = getFeaturedStreamBySlug(slug);
-    if (!featured) {
-      setLoading(false);
-      return;
-    }
+    setLoading(true);
+    setError(null);
 
     Promise.all([fetchChannel(slug), fetchActions(slug), fetchMembershipPlans(slug)])
       .then(([ch, acts, plans]) => {
@@ -599,39 +595,21 @@ Expires At: ${nonceData.expiresAt}`;
   }
 
   const featured = slug ? getFeaturedStreamBySlug(slug) : undefined;
-  const featuredEmbedUrl = featured ? toYouTubeEmbedUrl(featured.youtube.url) : null;
-  const featuredAutoplayUrl = featuredEmbedUrl
+  const streamInput = channel?.streamEmbedUrl || featured?.youtube.url || null;
+  const embedUrl = streamInput ? toYouTubeEmbedUrl(streamInput) : null;
+  const autoplayUrl = embedUrl
     ? (() => {
         try {
-          const url = new URL(featuredEmbedUrl);
+          const url = new URL(embedUrl);
           url.searchParams.set('autoplay', '1');
           url.searchParams.set('mute', '1');
           url.searchParams.set('playsinline', '1');
           return url.toString();
         } catch {
-          return featuredEmbedUrl;
+          return embedUrl;
         }
       })()
     : null;
-
-  if (!featured || !featuredAutoplayUrl) {
-    return (
-      <div>
-        <TopNav />
-        <div className="container">
-          <div className="card">
-            <h2 style={{ fontSize: '18px', fontWeight: 700 }}>Stream not available</h2>
-            <p style={{ marginTop: '8px', color: '#888' }}>This stream is not in the featured list.</p>
-            <div style={{ marginTop: '14px' }}>
-              <Link to="/" style={{ color: '#3b82f6' }}>
-                Back to Home
-              </Link>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   if (!channel) {
     return (
@@ -645,33 +623,33 @@ Expires At: ${nonceData.expiresAt}`;
   return (
     <div>
       <TopNav />
-      <div className="container">
-      <header style={{ marginBottom: '24px' }}>
-        <h1>{channel.displayName}</h1>
-        <p style={{ color: '#888', fontSize: '14px' }}>Network: {channel.network}</p>
+	      <div className="container">
+	      <header style={{ marginBottom: '24px' }}>
+	        <h1>{channel.displayName}</h1>
+	        <p style={{ color: 'var(--muted)', fontSize: '14px' }}>Network: {channel.network}</p>
 
-        {!isConnected() ? (
-          <button
-            onClick={handleConnect}
-            style={{ marginTop: '12px', background: '#3b82f6', color: '#fff' }}
-          >
-            Connect Wallet
-          </button>
-        ) : (
-          <p style={{ marginTop: '12px', color: '#10b981', fontSize: '14px' }}>
-            Connected: {walletAddress?.slice(0, 6)}...{walletAddress?.slice(-4)}
-          </p>
-        )}
-      </header>
+	        {!isConnected() ? (
+	          <button
+	            onClick={handleConnect}
+	            style={{ marginTop: '12px', background: 'var(--primary)', color: 'var(--primary-text)' }}
+	          >
+	            Connect Wallet
+	          </button>
+	        ) : (
+	          <p style={{ marginTop: '12px', color: 'var(--accent)', fontSize: '14px' }}>
+	            Connected: {walletAddress?.slice(0, 6)}...{walletAddress?.slice(-4)}
+	          </p>
+	        )}
+	      </header>
 
-      {error && (
-        <div className="card" style={{ background: '#dc2626', marginBottom: '16px' }}>
-          <p>{error}</p>
-          <button onClick={() => setError(null)} style={{ marginTop: '8px', background: '#fff', color: '#000' }}>
-            Dismiss
-          </button>
-        </div>
-      )}
+	      {error && (
+	        <div className="card" style={{ background: 'var(--danger)', color: '#fff', marginBottom: '16px' }}>
+	          <p>{error}</p>
+	          <button onClick={() => setError(null)} style={{ marginTop: '8px', background: '#fff', color: '#000' }}>
+	            Dismiss
+	          </button>
+	        </div>
+	      )}
 
       <div className="viewer-grid">
         <div className="viewer-main">
@@ -679,30 +657,59 @@ Expires At: ${nonceData.expiresAt}`;
             <h2>Live</h2>
             <div className="card" style={{ padding: 0, overflow: 'hidden', marginTop: '12px' }}>
               <div style={{ position: 'relative', paddingTop: '56.25%' }}>
-                <iframe
-                  src={featuredAutoplayUrl}
-                  title={`${channel.displayName} livestream`}
-                  allow="autoplay; encrypted-media; picture-in-picture"
-                  allowFullScreen
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    height: '100%',
-                    border: 0,
-                  }}
-                />
+                {autoplayUrl ? (
+                  <iframe
+                    src={autoplayUrl}
+                    title={`${channel.displayName} livestream`}
+                    allow="autoplay; encrypted-media; picture-in-picture"
+                    allowFullScreen
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      height: '100%',
+                      border: 0,
+                    }}
+                  />
+	                ) : (
+	                  <div
+	                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      height: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+	                      justifyContent: 'center',
+	                      padding: '16px',
+	                      textAlign: 'center',
+	                      color: 'var(--muted)',
+	                      background: 'var(--panel-2)',
+	                    }}
+	                  >
+	                    <div>
+	                      <div style={{ fontWeight: 700, color: 'var(--text)' }}>No stream configured</div>
+	                      <div style={{ marginTop: '6px', fontSize: '14px' }}>
+	                        Ask the streamer to set a stream URL (YouTube channel ID is best for stable live links).
+	                      </div>
+	                    </div>
+	                  </div>
+	                )}
                 {slug && <OverlayLayer slug={slug} />}
               </div>
             </div>
           </section>
 
-          <section style={{ marginTop: '24px' }}>
-            <h2>Effects</h2>
-            <p style={{ marginTop: '8px', color: '#888', fontSize: '14px' }}>
-              Effects appear on the streamer overlay: <a href={`/o/${slug}`} style={{ color: '#3b82f6' }}>/o/{slug}</a>
-            </p>
+	          <section style={{ marginTop: '24px' }}>
+	            <h2>Effects</h2>
+	            <p style={{ marginTop: '8px', color: 'var(--muted)', fontSize: '14px' }}>
+	              Effects appear on the streamer overlay:{' '}
+	              <a href={`/o/${slug}`} style={{ color: 'var(--accent-text)' }}>
+	                /o/{slug}
+	              </a>
+	            </p>
             {actions.length === 0 ? (
               <div className="card" style={{ marginTop: '12px' }}>
                 <EmptyState
@@ -718,25 +725,31 @@ Expires At: ${nonceData.expiresAt}`;
                   key={action.actionKey}
                   onClick={() => handleTriggerAction(action.actionKey)}
                   disabled={!isConnected() || paymentState === 'signing' || paymentState === 'settling'}
-                  style={{
-                    padding: '16px',
-                    background: activeAction === action.actionKey && paymentState !== 'idle' && paymentState !== 'done' ? '#f59e0b' : '#1a1a1a',
-                    color: '#fff',
-                    border: '1px solid #333',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    gap: '8px',
-                  }}
+	                  style={{
+	                    padding: '16px',
+	                    background:
+	                      activeAction === action.actionKey && paymentState !== 'idle' && paymentState !== 'done'
+	                        ? '#f59e0b'
+	                        : 'var(--panel-2)',
+	                    color:
+	                      activeAction === action.actionKey && paymentState !== 'idle' && paymentState !== 'done'
+	                        ? 'var(--primary-text)'
+	                        : 'var(--text)',
+	                    border: '1px solid var(--border)',
+	                    display: 'flex',
+	                    flexDirection: 'column',
+	                    alignItems: 'center',
+	                    gap: '8px',
+	                  }}
                 >
                   <span style={{ fontSize: '24px' }}>
                     {action.type === 'sticker' ? '🖼️' : action.type === 'sound' ? '🔊' : '⚡'}
                   </span>
-                  <span>{action.actionKey}</span>
-                  <span style={{ fontSize: '12px', color: '#888' }}>
-                    ${formatUsdcAmount(action.priceBaseUnits)} USDC
-                  </span>
-                </button>
+	                  <span>{action.actionKey}</span>
+	                  <span style={{ fontSize: '12px', color: 'var(--muted)' }}>
+	                    ${formatUsdcAmount(action.priceBaseUnits)} USDC
+	                  </span>
+	                </button>
               ))}
             </div>
             )}
@@ -750,20 +763,20 @@ Expires At: ${nonceData.expiresAt}`;
                   {paymentState === 'done' && lastResult && (
                     <>
                       Success! TX:{' '}
-                      <a
-                        href={`https://explorer.cronos.org/testnet/tx/${lastResult.txHash}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ color: '#3b82f6' }}
-                      >
-                        {lastResult.txHash.slice(0, 10)}...
-                      </a>
-                      <button
-                        onClick={() => handleCopyTxHash(lastResult.txHash)}
-                        style={{ marginLeft: '8px', background: 'transparent', color: '#888', border: 'none', cursor: 'pointer', fontSize: '12px' }}
-                      >
-                        Copy
-                      </button>
+	                      <a
+	                        href={`https://explorer.cronos.org/testnet/tx/${lastResult.txHash}`}
+	                        target="_blank"
+	                        rel="noopener noreferrer"
+	                        style={{ color: 'var(--accent-text)' }}
+	                      >
+	                        {lastResult.txHash.slice(0, 10)}...
+	                      </a>
+	                      <button
+	                        onClick={() => handleCopyTxHash(lastResult.txHash)}
+	                        style={{ marginLeft: '8px', background: 'transparent', color: 'var(--muted)', border: 'none', cursor: 'pointer', fontSize: '12px' }}
+	                      >
+	                        Copy
+	                      </button>
                     </>
                   )}
                   {paymentState === 'error' && 'Error occurred'}
@@ -791,36 +804,37 @@ Expires At: ${nonceData.expiresAt}`;
             <section>
               <h2>Membership</h2>
               <div className="card" style={{ marginTop: '12px' }}>
-                {membershipStatus?.active ? (
-                  <div>
+	                {membershipStatus?.active ? (
+	                  <div>
                     <div style={{
                       display: 'flex',
                       alignItems: 'center',
                       gap: '8px',
                       marginBottom: '12px',
                     }}>
-                      <span style={{
-                        padding: '4px 8px',
-                        background: '#10b981',
-                        borderRadius: '4px',
-                        fontSize: '12px',
-                        fontWeight: 'bold',
-                      }}>
-                        MEMBER
-                      </span>
-                      <span style={{ color: '#888', fontSize: '14px' }}>
-                        {membershipStatus.membership?.planName}
-                      </span>
-                    </div>
-                    <p style={{ color: '#888', fontSize: '14px' }}>
-                      Expires: {membershipStatus.membership?.expiresAt ?
-                        new Date(membershipStatus.membership.expiresAt).toLocaleDateString() : 'N/A'}
-                    </p>
-                    <button
-                      onClick={handleSubscribe}
-                      disabled={!isConnected() || membershipState === 'signing' || membershipState === 'settling'}
-                      style={{ marginTop: '12px', background: '#6366f1', color: '#fff', width: '100%' }}
-                    >
+	                      <span style={{
+	                        padding: '4px 8px',
+	                        background: 'var(--accent)',
+	                        color: 'var(--primary-text)',
+	                        borderRadius: '4px',
+	                        fontSize: '12px',
+	                        fontWeight: 'bold',
+	                      }}>
+	                        MEMBER
+	                      </span>
+	                      <span style={{ color: 'var(--muted)', fontSize: '14px' }}>
+	                        {membershipStatus.membership?.planName}
+	                      </span>
+	                    </div>
+	                    <p style={{ color: 'var(--muted)', fontSize: '14px' }}>
+	                      Expires: {membershipStatus.membership?.expiresAt ?
+	                        new Date(membershipStatus.membership.expiresAt).toLocaleDateString() : 'N/A'}
+	                    </p>
+	                    <button
+	                      onClick={handleSubscribe}
+	                      disabled={!isConnected() || membershipState === 'signing' || membershipState === 'settling'}
+	                      style={{ marginTop: '12px', background: 'var(--primary)', color: 'var(--primary-text)', width: '100%' }}
+	                    >
                       {membershipState === 'signing'
                         ? 'Signing...'
                         : membershipState === 'settling'
@@ -830,15 +844,15 @@ Expires At: ${nonceData.expiresAt}`;
                   </div>
                 ) : (
                   <div>
-                    <p style={{ color: '#888', fontSize: '14px', marginBottom: '12px' }}>
-                      Join as a member to support this channel!
-                    </p>
+	                    <p style={{ color: 'var(--muted)', fontSize: '14px', marginBottom: '12px' }}>
+	                      Join as a member to support this channel!
+	                    </p>
 
                     {membershipPlans.length > 1 && (
                       <div style={{ marginBottom: '12px' }}>
-                        <label style={{ display: 'block', marginBottom: '4px', color: '#888', fontSize: '14px' }}>
-                          Select Plan
-                        </label>
+	                        <label style={{ display: 'block', marginBottom: '4px', color: 'var(--muted)', fontSize: '14px' }}>
+	                          Select Plan
+	                        </label>
                         <select
                           value={selectedPlan || ''}
                           onChange={(e) => setSelectedPlan(e.target.value)}
@@ -859,11 +873,11 @@ Expires At: ${nonceData.expiresAt}`;
                       </p>
                     )}
 
-                    <button
-                      onClick={handleSubscribe}
-                      disabled={!isConnected() || !selectedPlan || membershipState === 'signing' || membershipState === 'settling'}
-                      style={{ background: '#6366f1', color: '#fff', width: '100%' }}
-                    >
+	                    <button
+	                      onClick={handleSubscribe}
+	                      disabled={!isConnected() || !selectedPlan || membershipState === 'signing' || membershipState === 'settling'}
+	                      style={{ background: 'var(--primary)', color: 'var(--primary-text)', width: '100%' }}
+	                    >
                       {membershipState === 'signing'
                         ? 'Signing...'
                         : membershipState === 'settling'
@@ -873,29 +887,29 @@ Expires At: ${nonceData.expiresAt}`;
                   </div>
                 )}
 
-                {membershipState === 'done' && membershipResult && (
-                  <p style={{ marginTop: '12px', color: '#10b981' }}>
-                    Success! TX:{' '}
-                    <a
-                      href={`https://explorer.cronos.org/testnet/tx/${membershipResult.payment.txHash}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{ color: '#3b82f6' }}
-                    >
-                      {membershipResult.payment.txHash.slice(0, 10)}...
-                    </a>
-                  </p>
-                )}
+	                {membershipState === 'done' && membershipResult && (
+	                  <p style={{ marginTop: '12px', color: 'var(--accent)' }}>
+	                    Success! TX:{' '}
+	                    <a
+	                      href={`https://explorer.cronos.org/testnet/tx/${membershipResult.payment.txHash}`}
+	                      target="_blank"
+	                      rel="noopener noreferrer"
+	                      style={{ color: 'var(--accent-text)' }}
+	                    >
+	                      {membershipResult.payment.txHash.slice(0, 10)}...
+	                    </a>
+	                  </p>
+	                )}
               </div>
             </section>
           )}
 
           <section style={{ marginTop: membershipPlans.length > 0 ? '24px' : 0 }}>
-            <h2>Donate</h2>
-            <div className="card" style={{ marginTop: '12px' }}>
-              <p style={{ color: '#888', fontSize: '14px', lineHeight: 1.4 }}>
-                Donate while watching the stream. Amounts are in USDC; choose a preset or enter a custom amount.
-              </p>
+	            <h2>Donate</h2>
+	            <div className="card" style={{ marginTop: '12px' }}>
+	              <p style={{ color: 'var(--muted)', fontSize: '14px', lineHeight: 1.4 }}>
+	                Donate while watching the stream. Amounts are in USDC; choose a preset or enter a custom amount.
+	              </p>
 
               <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
                 {[
@@ -910,21 +924,21 @@ Expires At: ${nonceData.expiresAt}`;
                       setDonationAmount(preset.value);
                       setDonationAmountError(null);
                     }}
-                    style={{
-                      background: donationAmount === preset.value ? '#3b82f6' : '#1a1a1a',
-                      color: '#fff',
-                      border: '1px solid #333',
-                    }}
-                  >
+	                    style={{
+	                      background: donationAmount === preset.value ? 'var(--primary)' : 'var(--panel-2)',
+	                      color: donationAmount === preset.value ? 'var(--primary-text)' : 'var(--text)',
+	                      border: '1px solid var(--border)',
+	                    }}
+	                  >
                     {preset.label}
                   </button>
                 ))}
               </div>
 
-              <div style={{ marginTop: '12px' }}>
-                <label style={{ display: 'block', marginBottom: '4px', color: '#888', fontSize: '14px' }}>
-                  Amount (USDC)
-                </label>
+	              <div style={{ marginTop: '12px' }}>
+	                <label style={{ display: 'block', marginBottom: '4px', color: 'var(--muted)', fontSize: '14px' }}>
+	                  Amount (USDC)
+	                </label>
                 <input
                   type="text"
                   value={donationAmount}
@@ -932,17 +946,17 @@ Expires At: ${nonceData.expiresAt}`;
                   placeholder="0.05"
                   style={{ width: '100%' }}
                 />
-                {donationAmountError && (
-                  <p style={{ marginTop: '8px', color: '#ef4444', fontSize: '13px' }}>
-                    {donationAmountError}
-                  </p>
-                )}
-              </div>
+	                {donationAmountError && (
+	                  <p style={{ marginTop: '8px', color: 'var(--danger)', fontSize: '13px' }}>
+	                    {donationAmountError}
+	                  </p>
+	                )}
+	              </div>
 
-              <div style={{ marginTop: '12px' }}>
-                <label style={{ display: 'block', marginBottom: '4px', color: '#888', fontSize: '14px' }}>
-                  Display Name (optional)
-                </label>
+	              <div style={{ marginTop: '12px' }}>
+	                <label style={{ display: 'block', marginBottom: '4px', color: 'var(--muted)', fontSize: '14px' }}>
+	                  Display Name (optional)
+	                </label>
                 <input
                   type="text"
                   value={donationDisplayName}
@@ -952,10 +966,10 @@ Expires At: ${nonceData.expiresAt}`;
                 />
               </div>
 
-              <div style={{ marginTop: '12px' }}>
-                <label style={{ display: 'block', marginBottom: '4px', color: '#888', fontSize: '14px' }}>
-                  Message (optional)
-                </label>
+	              <div style={{ marginTop: '12px' }}>
+	                <label style={{ display: 'block', marginBottom: '4px', color: 'var(--muted)', fontSize: '14px' }}>
+	                  Message (optional)
+	                </label>
                 <textarea
                   value={donationMessage}
                   onChange={(e) => setDonationMessage(e.target.value)}
@@ -965,11 +979,11 @@ Expires At: ${nonceData.expiresAt}`;
                 />
               </div>
 
-              <button
-                onClick={handleDonate}
-                disabled={!isConnected() || donationState === 'signing' || donationState === 'settling'}
-                style={{ marginTop: '12px', background: '#f59e0b', color: '#000', width: '100%' }}
-              >
+	              <button
+	                onClick={handleDonate}
+	                disabled={!isConnected() || donationState === 'signing' || donationState === 'settling'}
+	                style={{ marginTop: '12px', background: 'var(--primary)', color: 'var(--primary-text)', width: '100%' }}
+	              >
                 {donationState === 'signing'
                   ? 'Signing...'
                   : donationState === 'settling'
@@ -986,14 +1000,14 @@ Expires At: ${nonceData.expiresAt}`;
                     {donationState === 'done' && donationResult && (
                       <>
                         Thanks! TX:{' '}
-                        <a
-                          href={`https://explorer.cronos.org/testnet/tx/${donationResult.txHash}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{ color: '#3b82f6' }}
-                        >
-                          {donationResult.txHash.slice(0, 10)}...
-                        </a>
+	                        <a
+	                          href={`https://explorer.cronos.org/testnet/tx/${donationResult.txHash}`}
+	                          target="_blank"
+	                          rel="noopener noreferrer"
+	                          style={{ color: 'var(--accent-text)' }}
+	                        >
+	                          {donationResult.txHash.slice(0, 10)}...
+	                        </a>
                       </>
                     )}
                     {donationState === 'error' && 'Error occurred'}
@@ -1006,10 +1020,10 @@ Expires At: ${nonceData.expiresAt}`;
           <section style={{ marginTop: '24px' }}>
             <h2>Ask a Question</h2>
             <div className="card" style={{ marginTop: '12px' }}>
-              <div style={{ marginBottom: '12px' }}>
-                <label style={{ display: 'block', marginBottom: '4px', color: '#888', fontSize: '14px' }}>
-                  Display Name (optional)
-                </label>
+	              <div style={{ marginBottom: '12px' }}>
+	                <label style={{ display: 'block', marginBottom: '4px', color: 'var(--muted)', fontSize: '14px' }}>
+	                  Display Name (optional)
+	                </label>
                 <input
                   type="text"
                   value={qaDisplayName}
@@ -1019,10 +1033,10 @@ Expires At: ${nonceData.expiresAt}`;
                 />
               </div>
 
-              <div style={{ marginBottom: '12px' }}>
-                <label style={{ display: 'block', marginBottom: '4px', color: '#888', fontSize: '14px' }}>
-                  Your Question
-                </label>
+	              <div style={{ marginBottom: '12px' }}>
+	                <label style={{ display: 'block', marginBottom: '4px', color: 'var(--muted)', fontSize: '14px' }}>
+	                  Your Question
+	                </label>
                 <textarea
                   value={qaMessage}
                   onChange={(e) => setQaMessage(e.target.value)}
@@ -1032,10 +1046,10 @@ Expires At: ${nonceData.expiresAt}`;
                 />
               </div>
 
-              <div style={{ marginBottom: '16px' }}>
-                <label style={{ display: 'block', marginBottom: '4px', color: '#888', fontSize: '14px' }}>
-                  Tier
-                </label>
+	              <div style={{ marginBottom: '16px' }}>
+	                <label style={{ display: 'block', marginBottom: '4px', color: 'var(--muted)', fontSize: '14px' }}>
+	                  Tier
+	                </label>
                 <select
                   value={qaTier}
                   onChange={(e) => setQaTier(e.target.value as 'normal' | 'priority')}
@@ -1046,27 +1060,27 @@ Expires At: ${nonceData.expiresAt}`;
                 </select>
               </div>
 
-              <button
-                onClick={handleSubmitQA}
-                disabled={!isConnected() || !qaMessage.trim() || qaState === 'signing' || qaState === 'settling'}
-                style={{ background: '#10b981', color: '#fff', width: '100%' }}
-              >
+	              <button
+	                onClick={handleSubmitQA}
+	                disabled={!isConnected() || !qaMessage.trim() || qaState === 'signing' || qaState === 'settling'}
+	                style={{ background: 'var(--primary)', color: 'var(--primary-text)', width: '100%' }}
+	              >
                 {qaState === 'signing' ? 'Signing...' : qaState === 'settling' ? 'Settling...' : 'Submit Question'}
               </button>
 
-              {qaState === 'done' && qaResult && (
-                <p style={{ marginTop: '12px', color: '#10b981' }}>
-                  Question submitted! TX:{' '}
-                  <a
-                    href={`https://explorer.cronos.org/testnet/tx/${qaResult.txHash}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ color: '#3b82f6' }}
-                  >
-                    {qaResult.txHash.slice(0, 10)}...
-                  </a>
-                </p>
-              )}
+	              {qaState === 'done' && qaResult && (
+	                <p style={{ marginTop: '12px', color: 'var(--accent)' }}>
+	                  Question submitted! TX:{' '}
+	                  <a
+	                    href={`https://explorer.cronos.org/testnet/tx/${qaResult.txHash}`}
+	                    target="_blank"
+	                    rel="noopener noreferrer"
+	                    style={{ color: 'var(--accent-text)' }}
+	                  >
+	                    {qaResult.txHash.slice(0, 10)}...
+	                  </a>
+	                </p>
+	              )}
             </div>
           </section>
 
@@ -1074,14 +1088,14 @@ Expires At: ${nonceData.expiresAt}`;
           {isConnected() && (
             <section style={{ marginTop: '24px' }}>
               <h2>My Supports</h2>
-              <div className="card" style={{ marginTop: '12px' }}>
-                {mySupportsLoading && <p style={{ color: '#888' }}>Loading...</p>}
+	              <div className="card" style={{ marginTop: '12px' }}>
+	                {mySupportsLoading && <p style={{ color: 'var(--muted)' }}>Loading...</p>}
 
-                {!mySupportsLoading && mySupports.length === 0 && (
-                  <p style={{ color: '#888', fontSize: '14px' }}>
-                    No supports yet. Support this channel!
-                  </p>
-                )}
+	                {!mySupportsLoading && mySupports.length === 0 && (
+	                  <p style={{ color: 'var(--muted)', fontSize: '14px' }}>
+	                    No supports yet. Support this channel!
+	                  </p>
+	                )}
 
                 {!mySupportsLoading && mySupports.length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -1091,51 +1105,52 @@ Expires At: ${nonceData.expiresAt}`;
                         style={{
                           display: 'flex',
                           justifyContent: 'space-between',
-                          alignItems: 'center',
-                          padding: '8px',
-                          background: '#1a1a1a',
-                          borderRadius: '6px',
-                        }}
-                      >
+	                          alignItems: 'center',
+	                          padding: '8px',
+	                          background: 'var(--panel-2)',
+	                          borderRadius: '6px',
+	                        }}
+	                      >
                         <div>
-                          <span
-                            style={{
-                              padding: '2px 6px',
-                              borderRadius: '4px',
-                              fontSize: '11px',
-                              marginRight: '8px',
-                              background:
-                                support.kind === 'donation'
-                                  ? '#f59e0b'
-                                  : support.kind === 'qa'
-                                  ? '#3b82f6'
-                                  : support.kind === 'membership'
-                                  ? '#6366f1'
-                                  : '#6b7280',
-                            }}
-                          >
+	                          <span
+	                            style={{
+	                              padding: '2px 6px',
+	                              borderRadius: '4px',
+	                              fontSize: '11px',
+	                              marginRight: '8px',
+	                              color: 'var(--primary-text)',
+	                              background:
+	                                support.kind === 'donation'
+	                                  ? '#f2da00'
+	                                  : support.kind === 'qa'
+	                                  ? '#5cbffb'
+	                                  : support.kind === 'membership'
+	                                  ? 'var(--accent)'
+	                                  : '#9da5b6',
+	                            }}
+	                          >
                             {support.kind || 'effect'}
                           </span>
-                          {support.timestamp && (
-                            <span style={{ fontSize: '12px', color: '#888' }}>
-                              {new Date(support.timestamp * 1000).toLocaleDateString()}
-                            </span>
-                          )}
-                        </div>
-                        <div style={{ textAlign: 'right' }}>
-                          <span style={{ fontWeight: 'bold', color: '#10b981' }}>
-                            ${formatUsdcAmount(support.value)}
-                          </span>
-                          {support.txHash && (
+	                          {support.timestamp && (
+	                            <span style={{ fontSize: '12px', color: 'var(--muted)' }}>
+	                              {new Date(support.timestamp * 1000).toLocaleDateString()}
+	                            </span>
+	                          )}
+	                        </div>
+	                        <div style={{ textAlign: 'right' }}>
+	                          <span style={{ fontWeight: 'bold', color: 'var(--accent)' }}>
+	                            ${formatUsdcAmount(support.value)}
+	                          </span>
+	                          {support.txHash && (
                             <a
-                              href={`https://explorer.cronos.org/testnet/tx/${support.txHash}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              style={{ marginLeft: '8px', fontSize: '11px', color: '#6366f1' }}
-                            >
-                              tx
-                            </a>
-                          )}
+	                              href={`https://explorer.cronos.org/testnet/tx/${support.txHash}`}
+	                              target="_blank"
+	                              rel="noopener noreferrer"
+	                              style={{ marginLeft: '8px', fontSize: '11px', color: 'var(--accent-text)' }}
+	                            >
+	                              tx
+	                            </a>
+	                          )}
                         </div>
                       </div>
                     ))}
@@ -1144,14 +1159,14 @@ Expires At: ${nonceData.expiresAt}`;
 
                 <button
                   onClick={refreshMySupports}
-                  style={{
-                    marginTop: '12px',
-                    background: 'transparent',
-                    color: '#888',
-                    border: '1px solid #333',
-                    fontSize: '12px',
-                    width: '100%',
-                  }}
+	                  style={{
+	                    marginTop: '12px',
+	                    background: 'transparent',
+	                    color: 'var(--muted)',
+	                    border: '1px solid var(--border)',
+	                    fontSize: '12px',
+	                    width: '100%',
+	                  }}
                 >
                   Refresh
                 </button>
@@ -1163,38 +1178,38 @@ Expires At: ${nonceData.expiresAt}`;
           {isConnected() && (
             <section style={{ marginTop: '24px' }}>
               <h2>Nickname</h2>
-              <div className="card" style={{ marginTop: '12px' }}>
-                {nicknameLoading ? (
-                  <p style={{ color: '#888' }}>Loading...</p>
-                ) : (
-                  <>
+	              <div className="card" style={{ marginTop: '12px' }}>
+	                {nicknameLoading ? (
+	                  <p style={{ color: 'var(--muted)' }}>Loading...</p>
+	                ) : (
+	                  <>
                     {/* Effective nickname preview */}
-                    <div style={{ marginBottom: '16px', padding: '12px', background: '#1a1a1a', borderRadius: '6px' }}>
-                      <p style={{ fontSize: '12px', color: '#888', marginBottom: '4px' }}>Your display name:</p>
-                      <p style={{ fontSize: '16px', fontWeight: 600 }}>
-                        {channelProfileData?.effectiveDisplayName || walletAddress?.slice(0, 6) + '...' + walletAddress?.slice(-4)}
-                      </p>
-                      <p style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>
-                        {channelProfileData?.channelDisplayNameOverride
-                          ? '(channel override)'
-                          : channelProfileData?.globalDisplayName
+	                    <div style={{ marginBottom: '16px', padding: '12px', background: 'var(--panel-2)', borderRadius: '6px' }}>
+	                      <p style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '4px' }}>Your display name:</p>
+	                      <p style={{ fontSize: '16px', fontWeight: 600 }}>
+	                        {channelProfileData?.effectiveDisplayName || walletAddress?.slice(0, 6) + '...' + walletAddress?.slice(-4)}
+	                      </p>
+	                      <p style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>
+	                        {channelProfileData?.channelDisplayNameOverride
+	                          ? '(channel override)'
+	                          : channelProfileData?.globalDisplayName
                           ? '(global)'
                           : '(wallet address)'}
                       </p>
                     </div>
 
-                    {nicknameError && (
-                      <p style={{ color: '#ef4444', fontSize: '13px', marginBottom: '12px' }}>{nicknameError}</p>
-                    )}
+	                    {nicknameError && (
+	                      <p style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '12px' }}>{nicknameError}</p>
+	                    )}
 
                     {/* Global nickname editor */}
-                    <div style={{ marginBottom: '16px' }}>
-                      <label style={{ display: 'block', marginBottom: '4px', color: '#888', fontSize: '14px' }}>
-                        Global Nickname
-                      </label>
-                      <p style={{ fontSize: '12px', color: '#666', marginBottom: '8px' }}>
-                        Used across all channels unless overridden
-                      </p>
+	                    <div style={{ marginBottom: '16px' }}>
+	                      <label style={{ display: 'block', marginBottom: '4px', color: 'var(--muted)', fontSize: '14px' }}>
+	                        Global Nickname
+	                      </label>
+	                      <p style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '8px' }}>
+	                        Used across all channels unless overridden
+	                      </p>
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <input
                           type="text"
@@ -1205,24 +1220,24 @@ Expires At: ${nonceData.expiresAt}`;
                           style={{ flex: 1 }}
                           disabled={nicknameSaving}
                         />
-                        <button
-                          onClick={handleSaveGlobalNickname}
-                          disabled={nicknameSaving || !globalNicknameInput.trim()}
-                          style={{ background: '#3b82f6', color: '#fff', whiteSpace: 'nowrap' }}
-                        >
-                          {nicknameSaving ? 'Signing...' : 'Save'}
-                        </button>
+	                        <button
+	                          onClick={handleSaveGlobalNickname}
+	                          disabled={nicknameSaving || !globalNicknameInput.trim()}
+	                          style={{ background: 'var(--primary)', color: 'var(--primary-text)', whiteSpace: 'nowrap' }}
+	                        >
+	                          {nicknameSaving ? 'Signing...' : 'Save'}
+	                        </button>
                       </div>
                     </div>
 
                     {/* Channel override editor */}
-                    <div>
-                      <label style={{ display: 'block', marginBottom: '4px', color: '#888', fontSize: '14px' }}>
-                        Channel Override
-                      </label>
-                      <p style={{ fontSize: '12px', color: '#666', marginBottom: '8px' }}>
-                        Optional: Use a different name for this channel only
-                      </p>
+	                    <div>
+	                      <label style={{ display: 'block', marginBottom: '4px', color: 'var(--muted)', fontSize: '14px' }}>
+	                        Channel Override
+	                      </label>
+	                      <p style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '8px' }}>
+	                        Optional: Use a different name for this channel only
+	                      </p>
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <input
                           type="text"
@@ -1233,35 +1248,35 @@ Expires At: ${nonceData.expiresAt}`;
                           style={{ flex: 1 }}
                           disabled={nicknameSaving}
                         />
-                        <button
-                          onClick={handleSaveChannelNickname}
-                          disabled={nicknameSaving || !channelNicknameInput.trim()}
-                          style={{ background: '#6366f1', color: '#fff', whiteSpace: 'nowrap' }}
-                        >
-                          {nicknameSaving ? 'Signing...' : 'Set'}
-                        </button>
+	                        <button
+	                          onClick={handleSaveChannelNickname}
+	                          disabled={nicknameSaving || !channelNicknameInput.trim()}
+	                          style={{ background: 'var(--primary)', color: 'var(--primary-text)', whiteSpace: 'nowrap' }}
+	                        >
+	                          {nicknameSaving ? 'Signing...' : 'Set'}
+	                        </button>
                       </div>
                       {channelProfileData?.channelDisplayNameOverride && (
                         <button
                           onClick={handleClearChannelNickname}
                           disabled={nicknameSaving}
-                          style={{
-                            marginTop: '8px',
-                            background: 'transparent',
-                            color: '#888',
-                            border: '1px solid #333',
-                            fontSize: '12px',
-                            width: '100%',
-                          }}
+	                          style={{
+	                            marginTop: '8px',
+	                            background: 'transparent',
+	                            color: 'var(--muted)',
+	                            border: '1px solid var(--border)',
+	                            fontSize: '12px',
+	                            width: '100%',
+	                          }}
                         >
                           {nicknameSaving ? 'Signing...' : 'Reset to Global'}
                         </button>
                       )}
                     </div>
 
-                    <p style={{ fontSize: '11px', color: '#666', marginTop: '16px' }}>
-                      Nickname changes require a wallet signature (no payment).
-                    </p>
+	                    <p style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '16px' }}>
+	                      Nickname changes require a wallet signature (no payment).
+	                    </p>
                   </>
                 )}
               </div>

@@ -35,7 +35,7 @@ export function StatusBar() {
     return () => clearInterval(interval);
   }, []);
 
-  const statusColor = apiStatus === 'online' ? '#10b981' : apiStatus === 'offline' ? '#ef4444' : '#f59e0b';
+  const statusColor = apiStatus === 'online' ? '#00f889' : apiStatus === 'offline' ? '#e02020' : '#f2da00';
   const networkLabel = statusData?.network?.includes('testnet') ? 'Testnet' : statusData?.network?.includes('mainnet') ? 'Mainnet' : statusData?.network || 'Unknown';
 
   return (
@@ -45,14 +45,15 @@ export function StatusBar() {
         bottom: 0,
         left: 0,
         right: 0,
-        background: 'rgba(17, 24, 39, 0.95)',
-        borderTop: '1px solid #2a2a2a',
+        background: 'var(--topbar-bg)',
+        borderTop: '1px solid var(--border)',
+        backdropFilter: 'blur(10px)',
         padding: '8px 16px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
         fontSize: '12px',
-        color: '#888',
+        color: 'var(--muted)',
         zIndex: 100,
       }}
     >
@@ -79,13 +80,14 @@ export function StatusBar() {
                 padding: '2px 6px',
                 borderRadius: '4px',
                 fontSize: '11px',
-                background: statusData.network?.includes('testnet') ? '#6366f1' : '#10b981',
+                background: statusData.network?.includes('testnet') ? '#5cbffb' : 'var(--accent)',
+                color: 'var(--primary-text)',
               }}
             >
               {networkLabel}
             </span>
             {statusData.chainId && (
-              <span style={{ color: '#666' }}>Chain {statusData.chainId}</span>
+              <span style={{ color: 'var(--muted)' }}>Chain {statusData.chainId}</span>
             )}
           </div>
         )}
@@ -94,13 +96,13 @@ export function StatusBar() {
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
         {/* Last check time */}
         {lastCheck && (
-          <span style={{ color: '#666' }}>
+          <span style={{ color: 'var(--muted)' }}>
             Last checked: {lastCheck.toLocaleTimeString()}
           </span>
         )}
 
         {/* Stream402 branding */}
-        <span style={{ color: '#555' }}>Stream402</span>
+        <span style={{ color: 'var(--muted)' }}>Stream402</span>
       </div>
     </div>
   );

@@ -101,6 +101,12 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'queued' | 'showing' | 'answered' | 'skipped' | 'blocked'>('queued');
 
+  // Stream config state
+  const [streamEmbedInput, setStreamEmbedInput] = useState('');
+  const [streamEmbedCurrent, setStreamEmbedCurrent] = useState<string | null>(null);
+  const [streamEmbedSaving, setStreamEmbedSaving] = useState(false);
+  const [streamEmbedError, setStreamEmbedError] = useState<string | null>(null);
+
   // Tab state
   const [activeTab, setActiveTab] = useState<'qa' | 'supports' | 'members' | 'goals'>('qa');
 
@@ -597,9 +603,65 @@ export default function Dashboard() {
     };
   }, [slug, authenticated, filter]);
 
+  // Fetch channel config (stream embed URL)
+  useEffect(() => {
+    if (!slug || !authenticated) return;
+
+    setStreamEmbedError(null);
+    fetch(`${API_BASE}/channels/${slug}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error('Failed to fetch channel');
+        const data = await res.json();
+        const current = (data?.streamEmbedUrl ?? null) as string | null;
+        setStreamEmbedCurrent(current);
+        setStreamEmbedInput(current || '');
+      })
+      .catch(() => {
+        // Best-effort; keep dashboard usable even if this fails.
+      });
+  }, [slug, authenticated]);
+
   const handleAuth = () => {
     localStorage.setItem('dashboard_token', token);
     setAuthenticated(true);
+  };
+
+  const updateStreamEmbedUrl = async (value: string | null) => {
+    if (!slug) return;
+    setStreamEmbedSaving(true);
+    setStreamEmbedError(null);
+
+    try {
+      const res = await fetch(`${API_BASE}/channels/${slug}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ streamEmbedUrl: value }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to update stream URL');
+      }
+
+      setStreamEmbedCurrent(data.streamEmbedUrl || null);
+    } catch (err) {
+      setStreamEmbedError((err as Error).message);
+    } finally {
+      setStreamEmbedSaving(false);
+    }
+  };
+
+  const saveStreamEmbedUrl = async () => {
+    const value = streamEmbedInput.trim();
+    await updateStreamEmbedUrl(value ? value : null);
+  };
+
+  const clearStreamEmbedUrl = async () => {
+    setStreamEmbedInput('');
+    await updateStreamEmbedUrl(null);
   };
 
   const handleDemoReset = async () => {
@@ -681,12 +743,12 @@ export default function Dashboard() {
             />
             <button
               onClick={handleAuth}
-              style={{ background: '#3b82f6', color: '#fff', width: '100%' }}
+              style={{ background: 'var(--primary)', color: 'var(--primary-text)', width: '100%' }}
             >
               Authenticate
             </button>
           </div>
-          {error && <p style={{ marginTop: '12px', color: '#ef4444' }}>{error}</p>}
+          {error && <p style={{ marginTop: '12px', color: 'var(--danger)' }}>{error}</p>}
         </div>
       </div>
     );
@@ -701,7 +763,7 @@ export default function Dashboard() {
             <button
               onClick={() => setShowResetConfirm(true)}
               style={{
-                background: '#dc2626',
+                background: 'var(--danger)',
                 color: '#fff',
                 border: 'none',
                 padding: '8px 16px',
@@ -719,9 +781,9 @@ export default function Dashboard() {
           <button
             onClick={() => setActiveTab('qa')}
             style={{
-              background: activeTab === 'qa' ? '#3b82f6' : '#1a1a1a',
-              color: '#fff',
-              border: '1px solid #333',
+              background: activeTab === 'qa' ? 'var(--primary)' : 'var(--panel-2)',
+              color: activeTab === 'qa' ? 'var(--primary-text)' : 'var(--text)',
+              border: '1px solid var(--border)',
               padding: '8px 16px',
             }}
           >
@@ -730,9 +792,9 @@ export default function Dashboard() {
           <button
             onClick={() => setActiveTab('supports')}
             style={{
-              background: activeTab === 'supports' ? '#3b82f6' : '#1a1a1a',
-              color: '#fff',
-              border: '1px solid #333',
+              background: activeTab === 'supports' ? 'var(--primary)' : 'var(--panel-2)',
+              color: activeTab === 'supports' ? 'var(--primary-text)' : 'var(--text)',
+              border: '1px solid var(--border)',
               padding: '8px 16px',
             }}
           >
@@ -741,9 +803,9 @@ export default function Dashboard() {
           <button
             onClick={() => setActiveTab('members')}
             style={{
-              background: activeTab === 'members' ? '#3b82f6' : '#1a1a1a',
-              color: '#fff',
-              border: '1px solid #333',
+              background: activeTab === 'members' ? 'var(--primary)' : 'var(--panel-2)',
+              color: activeTab === 'members' ? 'var(--primary-text)' : 'var(--text)',
+              border: '1px solid var(--border)',
               padding: '8px 16px',
             }}
           >
@@ -752,9 +814,9 @@ export default function Dashboard() {
           <button
             onClick={() => setActiveTab('goals')}
             style={{
-              background: activeTab === 'goals' ? '#3b82f6' : '#1a1a1a',
-              color: '#fff',
-              border: '1px solid #333',
+              background: activeTab === 'goals' ? 'var(--primary)' : 'var(--panel-2)',
+              color: activeTab === 'goals' ? 'var(--primary-text)' : 'var(--text)',
+              border: '1px solid var(--border)',
               padding: '8px 16px',
             }}
           >
@@ -768,9 +830,9 @@ export default function Dashboard() {
                 key={status}
                 onClick={() => setFilter(status)}
                 style={{
-                  background: filter === status ? '#6366f1' : '#1a1a1a',
-                  color: '#fff',
-                  border: '1px solid #333',
+                  background: filter === status ? 'var(--primary)' : 'var(--panel-2)',
+                  color: filter === status ? 'var(--primary-text)' : 'var(--text)',
+                  border: '1px solid var(--border)',
                   fontSize: '14px',
                 }}
               >
@@ -782,8 +844,8 @@ export default function Dashboard() {
       </header>
 
       {error && (
-        <div className="card" style={{ background: '#dc2626', marginBottom: '16px' }}>
-          <p>{error}</p>
+        <div className="card" style={{ background: 'var(--danger)', color: '#fff', marginBottom: '16px' }}>
+          <p style={{ color: '#fff' }}>{error}</p>
           <button onClick={() => setError(null)} style={{ marginTop: '8px', background: '#fff', color: '#000' }}>
             Dismiss
           </button>
@@ -792,6 +854,60 @@ export default function Dashboard() {
 
       {/* Share Links */}
       {slug && <ShareLinks slug={slug} />}
+
+      {/* Stream Settings */}
+      {slug && (
+        <div className="card" style={{ marginBottom: '16px' }}>
+          <h2>Live Stream</h2>
+          <p style={{ marginTop: '8px', color: 'var(--muted)', fontSize: '14px' }}>
+            Tip: Use a YouTube channel ID (UC...) so your embed stays valid even when you stop/start a new live.
+          </p>
+
+          <div style={{ marginTop: '12px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <input
+              type="text"
+              value={streamEmbedInput}
+              onChange={(e) => setStreamEmbedInput(e.target.value)}
+              placeholder="YouTube channel ID (UC...), video ID, or YouTube URL"
+              style={{ flex: 1, minWidth: '260px' }}
+            />
+            <button
+              onClick={saveStreamEmbedUrl}
+              disabled={streamEmbedSaving}
+              style={{ background: 'var(--primary)', color: 'var(--primary-text)' }}
+            >
+              {streamEmbedSaving ? 'Saving...' : 'Save'}
+            </button>
+            <button
+              onClick={clearStreamEmbedUrl}
+              disabled={streamEmbedSaving}
+              style={{ background: 'transparent', color: 'var(--muted)', border: '1px solid var(--border)' }}
+            >
+              Clear
+            </button>
+          </div>
+
+          {streamEmbedError && (
+            <p style={{ marginTop: '10px', color: 'var(--danger)', fontSize: '14px' }}>{streamEmbedError}</p>
+          )}
+
+          <div style={{ marginTop: '10px', color: 'var(--muted)', fontSize: '13px' }}>
+            Current:{' '}
+            {streamEmbedCurrent ? (
+              <a
+                href={streamEmbedCurrent}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: 'var(--accent-text)' }}
+              >
+                Open embed
+              </a>
+            ) : (
+              <span>Not set</span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* KPI Cards */}
       {stats && (
@@ -804,37 +920,37 @@ export default function Dashboard() {
           }}
         >
           <div className="card" style={{ marginBottom: 0, textAlign: 'center', padding: '16px' }}>
-            <p style={{ color: '#888', fontSize: '12px', marginBottom: '4px' }}>Total Revenue</p>
-            <p style={{ fontSize: '24px', fontWeight: 700, color: '#10b981' }}>
+            <p style={{ color: 'var(--muted)', fontSize: '12px', marginBottom: '4px' }}>Total Revenue</p>
+            <p style={{ fontSize: '24px', fontWeight: 700, color: 'var(--accent)' }}>
               ${formatUSDC(stats.totalRevenue)}
             </p>
           </div>
           <div className="card" style={{ marginBottom: 0, textAlign: 'center', padding: '16px' }}>
-            <p style={{ color: '#888', fontSize: '12px', marginBottom: '4px' }}>Today</p>
-            <p style={{ fontSize: '24px', fontWeight: 700, color: '#3b82f6' }}>
+            <p style={{ color: 'var(--muted)', fontSize: '12px', marginBottom: '4px' }}>Today</p>
+            <p style={{ fontSize: '24px', fontWeight: 700, color: 'var(--accent-text)' }}>
               ${formatUSDC(stats.todayRevenue)}
             </p>
           </div>
           <div className="card" style={{ marginBottom: 0, textAlign: 'center', padding: '16px' }}>
-            <p style={{ color: '#888', fontSize: '12px', marginBottom: '4px' }}>Supporters</p>
+            <p style={{ color: 'var(--muted)', fontSize: '12px', marginBottom: '4px' }}>Supporters</p>
             <p style={{ fontSize: '24px', fontWeight: 700 }}>
               {stats.totalSupporters}
             </p>
           </div>
           <div className="card" style={{ marginBottom: 0, textAlign: 'center', padding: '16px' }}>
-            <p style={{ color: '#888', fontSize: '12px', marginBottom: '4px' }}>Active Members</p>
-            <p style={{ fontSize: '24px', fontWeight: 700, color: '#6366f1' }}>
+            <p style={{ color: 'var(--muted)', fontSize: '12px', marginBottom: '4px' }}>Active Members</p>
+            <p style={{ fontSize: '24px', fontWeight: 700, color: 'var(--accent)' }}>
               {stats.activeMembers}
             </p>
           </div>
           <div className="card" style={{ marginBottom: 0, textAlign: 'center', padding: '16px' }}>
-            <p style={{ color: '#888', fontSize: '12px', marginBottom: '4px' }}>Q&A Queue</p>
-            <p style={{ fontSize: '24px', fontWeight: 700, color: stats.queuedQA > 0 ? '#f59e0b' : '#888' }}>
+            <p style={{ color: 'var(--muted)', fontSize: '12px', marginBottom: '4px' }}>Q&A Queue</p>
+            <p style={{ fontSize: '24px', fontWeight: 700, color: stats.queuedQA > 0 ? '#f59e0b' : 'var(--muted)' }}>
               {stats.queuedQA}
             </p>
           </div>
           <div className="card" style={{ marginBottom: 0, textAlign: 'center', padding: '16px' }}>
-            <p style={{ color: '#888', fontSize: '12px', marginBottom: '4px' }}>Transactions</p>
+            <p style={{ color: 'var(--muted)', fontSize: '12px', marginBottom: '4px' }}>Transactions</p>
             <p style={{ fontSize: '24px', fontWeight: 700 }}>
               {stats.totalTransactions}
             </p>
@@ -876,7 +992,8 @@ export default function Dashboard() {
                         padding: '4px 8px',
                         borderRadius: '4px',
                         fontSize: '12px',
-                        background: item.tier === 'priority' ? '#f59e0b' : '#6b7280',
+                        background: item.tier === 'priority' ? '#f2da00' : '#9da5b6',
+                        color: 'var(--primary-text)',
                       }}
                     >
                       {item.tier}
@@ -887,7 +1004,8 @@ export default function Dashboard() {
                           padding: '4px 8px',
                           borderRadius: '4px',
                           fontSize: '12px',
-                          background: '#6366f1',
+                          background: 'var(--accent)',
+                          color: 'var(--primary-text)',
                           fontWeight: 'bold',
                         }}
                       >
@@ -895,7 +1013,7 @@ export default function Dashboard() {
                       </span>
                     )}
                   </div>
-                  <span style={{ fontSize: '12px', color: '#888' }}>
+                  <span style={{ fontSize: '12px', color: 'var(--muted)' }}>
                     {new Date(item.createdAt).toLocaleTimeString()}
                   </span>
                 </div>
@@ -909,25 +1027,25 @@ export default function Dashboard() {
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                     <button
                       onClick={() => handleAction(item.id, 'show')}
-                      style={{ background: '#10b981', color: '#fff' }}
+                      style={{ background: 'var(--primary)', color: 'var(--primary-text)' }}
                     >
                       Show
                     </button>
                     <button
                       onClick={() => handleAction(item.id, 'answered')}
-                      style={{ background: '#3b82f6', color: '#fff' }}
+                      style={{ background: '#5cbffb', color: 'var(--primary-text)' }}
                     >
                       Answered
                     </button>
                     <button
                       onClick={() => handleAction(item.id, 'skipped')}
-                      style={{ background: '#6b7280', color: '#fff' }}
+                      style={{ background: '#9da5b6', color: 'var(--primary-text)' }}
                     >
                       Skip
                     </button>
                     <button
                       onClick={() => handleAction(item.id, 'blocked')}
-                      style={{ background: '#ef4444', color: '#fff' }}
+                      style={{ background: 'var(--danger)', color: '#fff' }}
                     >
                       Block
                     </button>
@@ -938,13 +1056,13 @@ export default function Dashboard() {
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <button
                       onClick={() => handleAction(item.id, 'answered')}
-                      style={{ background: '#10b981', color: '#fff' }}
+                      style={{ background: '#5cbffb', color: 'var(--primary-text)' }}
                     >
                       Mark Answered
                     </button>
                     <button
                       onClick={() => handleAction(item.id, 'skipped')}
-                      style={{ background: '#6b7280', color: '#fff' }}
+                      style={{ background: '#9da5b6', color: 'var(--primary-text)' }}
                     >
                       Skip
                     </button>
@@ -963,8 +1081,8 @@ export default function Dashboard() {
           <button
             onClick={exportSupports}
             style={{
-              background: '#10b981',
-              color: '#fff',
+              background: 'var(--primary)',
+              color: 'var(--primary-text)',
               padding: '8px 16px',
               fontSize: '14px',
             }}
@@ -982,9 +1100,9 @@ export default function Dashboard() {
                   key={p}
                   onClick={() => setLeaderboardPeriod(p)}
                   style={{
-                    background: leaderboardPeriod === p ? '#6366f1' : '#1a1a1a',
-                    color: '#fff',
-                    border: '1px solid #333',
+                    background: leaderboardPeriod === p ? 'var(--primary)' : 'var(--panel-2)',
+                    color: leaderboardPeriod === p ? 'var(--primary-text)' : 'var(--text)',
+                    border: '1px solid var(--border)',
                     fontSize: '12px',
                     padding: '6px 12px',
                   }}
@@ -1022,28 +1140,28 @@ export default function Dashboard() {
                     justifyContent: 'space-between',
                     alignItems: 'center',
                     padding: '12px',
-                    background: '#1a1a1a',
+                    background: 'var(--panel-2)',
                     borderRadius: '8px',
                     cursor: 'pointer',
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <span style={{ fontWeight: 'bold', color: '#888', width: '24px' }}>#{idx + 1}</span>
+                    <span style={{ fontWeight: 'bold', color: 'var(--muted)', width: '24px' }}>#{idx + 1}</span>
                     <div>
                       <p style={{ fontWeight: 500, marginBottom: '2px' }}>
                         {entry.displayName || `${entry.fromAddress.slice(0, 6)}...${entry.fromAddress.slice(-4)}`}
                       </p>
-                      <p style={{ fontSize: '12px', color: '#888' }}>
+                      <p style={{ fontSize: '12px', color: 'var(--muted)' }}>
                         {entry.supportCount} supports
                       </p>
                     </div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <p style={{ fontWeight: 'bold', color: '#10b981' }}>
+                    <p style={{ fontWeight: 'bold', color: 'var(--accent)' }}>
                       ${formatUSDC(entry.totalValueBaseUnits)}
                     </p>
                     {entry.lastSupportedAt && (
-                      <p style={{ fontSize: '12px', color: '#888' }}>
+                      <p style={{ fontSize: '12px', color: 'var(--muted)' }}>
                         {new Date(entry.lastSupportedAt * 1000).toLocaleDateString()}
                       </p>
                     )}
@@ -1066,7 +1184,7 @@ export default function Dashboard() {
               />
               <button
                 onClick={handleWalletLookup}
-                style={{ background: '#3b82f6', color: '#fff' }}
+                style={{ background: 'var(--primary)', color: 'var(--primary-text)' }}
               >
                 Search
               </button>
@@ -1089,7 +1207,7 @@ export default function Dashboard() {
             )}
 
             {!walletSupportsLoading && !walletLookup && (
-              <p style={{ color: '#888', fontSize: '14px', textAlign: 'center', padding: '24px 0' }}>
+              <p style={{ color: 'var(--muted)', fontSize: '14px', textAlign: 'center', padding: '24px 0' }}>
                 Enter a wallet address above to see their support history.
               </p>
             )}
@@ -1103,7 +1221,7 @@ export default function Dashboard() {
                     justifyContent: 'space-between',
                     alignItems: 'center',
                     padding: '12px',
-                    background: '#1a1a1a',
+                    background: 'var(--panel-2)',
                     borderRadius: '8px',
                   }}
                 >
@@ -1115,12 +1233,13 @@ export default function Dashboard() {
                           borderRadius: '4px',
                           fontSize: '11px',
                           marginRight: '8px',
+                          color: 'var(--primary-text)',
                           background:
                             support.kind === 'donation'
-                              ? '#f59e0b'
+                              ? '#f2da00'
                               : support.kind === 'qa'
-                              ? '#3b82f6'
-                              : '#6b7280',
+                              ? '#5cbffb'
+                              : '#9da5b6',
                         }}
                       >
                         {support.kind || 'unknown'}
@@ -1128,13 +1247,13 @@ export default function Dashboard() {
                       {support.actionKey || support.qaId?.slice(0, 8) || ''}
                     </p>
                     {support.timestamp && (
-                      <p style={{ fontSize: '12px', color: '#888' }}>
+                      <p style={{ fontSize: '12px', color: 'var(--muted)' }}>
                         {new Date(support.timestamp * 1000).toLocaleString()}
                       </p>
                     )}
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <p style={{ fontWeight: 'bold', color: '#10b981' }}>
+                    <p style={{ fontWeight: 'bold', color: 'var(--accent)' }}>
                       ${formatUSDC(support.value)}
                     </p>
                     {support.txHash && (
@@ -1142,7 +1261,7 @@ export default function Dashboard() {
                         href={`https://cronos.org/explorer/testnet3/tx/${support.txHash}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        style={{ fontSize: '11px', color: '#6366f1' }}
+                        style={{ fontSize: '11px', color: 'var(--accent-text)' }}
                       >
                         View tx
                       </a>
@@ -1163,8 +1282,8 @@ export default function Dashboard() {
           <button
             onClick={exportMembers}
             style={{
-              background: '#10b981',
-              color: '#fff',
+              background: 'var(--primary)',
+              color: 'var(--primary-text)',
               padding: '8px 16px',
               fontSize: '14px',
             }}
@@ -1182,9 +1301,9 @@ export default function Dashboard() {
                 key={status}
                 onClick={() => setMemberFilter(status)}
                 style={{
-                  background: memberFilter === status ? '#6366f1' : '#1a1a1a',
-                  color: '#fff',
-                  border: '1px solid #333',
+                  background: memberFilter === status ? 'var(--primary)' : 'var(--panel-2)',
+                  color: memberFilter === status ? 'var(--primary-text)' : 'var(--text)',
+                  border: '1px solid var(--border)',
                   fontSize: '12px',
                   padding: '6px 12px',
                 }}
@@ -1205,7 +1324,7 @@ export default function Dashboard() {
             />
             <button
               onClick={fetchMembers}
-              style={{ background: '#3b82f6', color: '#fff' }}
+              style={{ background: 'var(--primary)', color: 'var(--primary-text)' }}
             >
               Search
             </button>
@@ -1240,7 +1359,7 @@ export default function Dashboard() {
                   justifyContent: 'space-between',
                   alignItems: 'center',
                   padding: '12px',
-                  background: '#1a1a1a',
+                  background: 'var(--panel-2)',
                   borderRadius: '8px',
                 }}
               >
@@ -1252,18 +1371,19 @@ export default function Dashboard() {
                         borderRadius: '4px',
                         fontSize: '11px',
                         marginRight: '8px',
+                        color: member.active ? 'var(--primary-text)' : member.revoked ? '#fff' : 'var(--primary-text)',
                         background: member.active
-                          ? '#10b981'
+                          ? 'var(--accent)'
                           : member.revoked
-                          ? '#ef4444'
-                          : '#6b7280',
+                          ? 'var(--danger)'
+                          : '#9da5b6',
                       }}
                     >
                       {member.active ? 'Active' : member.revoked ? 'Revoked' : 'Expired'}
                     </span>
                     {`${member.fromAddress.slice(0, 6)}...${member.fromAddress.slice(-4)}`}
                   </p>
-                  <p style={{ fontSize: '12px', color: '#888' }}>
+                  <p style={{ fontSize: '12px', color: 'var(--muted)' }}>
                     {member.planName} - Expires: {new Date(member.expiresAt).toLocaleDateString()}
                   </p>
                 </div>
@@ -1272,7 +1392,7 @@ export default function Dashboard() {
                     <button
                       onClick={() => revokeMember(member.fromAddress)}
                       style={{
-                        background: '#ef4444',
+                        background: 'var(--danger)',
                         color: '#fff',
                         fontSize: '12px',
                         padding: '6px 12px',
@@ -1296,7 +1416,7 @@ export default function Dashboard() {
             <h2>Goals</h2>
             <button
               onClick={() => setShowGoalForm(true)}
-              style={{ background: '#10b981', color: '#fff', padding: '8px 16px' }}
+              style={{ background: 'var(--primary)', color: 'var(--primary-text)', padding: '8px 16px' }}
             >
               + New Goal
             </button>
@@ -1317,7 +1437,7 @@ export default function Dashboard() {
               action={
                 <button
                   onClick={() => setShowGoalForm(true)}
-                  style={{ background: '#10b981', color: '#fff', padding: '10px 20px' }}
+                  style={{ background: 'var(--primary)', color: 'var(--primary-text)', padding: '10px 20px' }}
                 >
                   Create Your First Goal
                 </button>
@@ -1340,7 +1460,7 @@ export default function Dashboard() {
                   key={goal.id}
                   style={{
                     padding: '16px',
-                    background: '#1a1a1a',
+                    background: 'var(--panel-2)',
                     borderRadius: '8px',
                     opacity: goal.enabled ? 1 : 0.6,
                   }}
@@ -1354,7 +1474,8 @@ export default function Dashboard() {
                             padding: '2px 8px',
                             borderRadius: '4px',
                             fontSize: '11px',
-                            background: goal.type === 'donation' ? '#f59e0b' : '#6366f1',
+                            background: goal.type === 'donation' ? '#f2da00' : 'var(--accent)',
+                            color: 'var(--primary-text)',
                             textTransform: 'uppercase',
                             fontWeight: 'bold',
                           }}
@@ -1367,7 +1488,8 @@ export default function Dashboard() {
                               padding: '2px 8px',
                               borderRadius: '4px',
                               fontSize: '11px',
-                              background: '#6b7280',
+                              background: '#9da5b6',
+                              color: 'var(--primary-text)',
                               textTransform: 'uppercase',
                             }}
                           >
@@ -1375,7 +1497,7 @@ export default function Dashboard() {
                           </span>
                         )}
                       </div>
-                      <p style={{ fontSize: '13px', color: '#888' }}>
+                      <p style={{ fontSize: '13px', color: 'var(--muted)' }}>
                         {goal.type === 'donation'
                           ? `$${formatUSDC(goal.currentValue)} / $${formatUSDC(goal.targetValue)} USDC`
                           : `${goal.currentValue} / ${goal.targetValue} members`}
@@ -1386,8 +1508,8 @@ export default function Dashboard() {
                       <button
                         onClick={() => toggleGoalEnabled(goal.id, !goal.enabled)}
                         style={{
-                          background: goal.enabled ? '#6b7280' : '#10b981',
-                          color: '#fff',
+                          background: goal.enabled ? '#9da5b6' : 'var(--primary)',
+                          color: 'var(--primary-text)',
                           fontSize: '12px',
                           padding: '6px 12px',
                         }}
@@ -1397,8 +1519,8 @@ export default function Dashboard() {
                       <button
                         onClick={() => resetGoal(goal.id)}
                         style={{
-                          background: '#3b82f6',
-                          color: '#fff',
+                          background: '#5cbffb',
+                          color: 'var(--primary-text)',
                           fontSize: '12px',
                           padding: '6px 12px',
                         }}
@@ -1408,7 +1530,7 @@ export default function Dashboard() {
                       <button
                         onClick={() => deleteGoal(goal.id)}
                         style={{
-                          background: '#ef4444',
+                          background: 'var(--danger)',
                           color: '#fff',
                           fontSize: '12px',
                           padding: '6px 12px',
@@ -1423,7 +1545,7 @@ export default function Dashboard() {
                     style={{
                       width: '100%',
                       height: '10px',
-                      background: 'rgba(255, 255, 255, 0.1)',
+                      background: 'var(--chip-bg)',
                       borderRadius: '5px',
                       overflow: 'hidden',
                     }}
@@ -1433,8 +1555,8 @@ export default function Dashboard() {
                         width: `${Math.min(progress, 100)}%`,
                         height: '100%',
                         background: goal.type === 'donation'
-                          ? 'linear-gradient(90deg, #f59e0b, #fbbf24)'
-                          : 'linear-gradient(90deg, #6366f1, #818cf8)',
+                          ? 'linear-gradient(90deg, #f2da00, #00f889)'
+                          : 'linear-gradient(90deg, #5cbffb, #00f889)',
                         borderRadius: '5px',
                         transition: 'width 0.3s ease-out',
                       }}
@@ -1470,20 +1592,20 @@ export default function Dashboard() {
                 <h2 style={{ marginBottom: '16px' }}>Create New Goal</h2>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   <div>
-                    <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px', color: '#888' }}>
+                    <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px', color: 'var(--muted)' }}>
                       Goal Type
                     </label>
                     <select
                       value={newGoal.type}
                       onChange={(e) => setNewGoal({ ...newGoal, type: e.target.value as 'donation' | 'membership' })}
-                      style={{ width: '100%', padding: '8px', background: '#1a1a1a', color: '#fff', border: '1px solid #333', borderRadius: '4px' }}
+                      style={{ width: '100%', padding: '8px', background: 'var(--panel-2)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: '4px' }}
                     >
                       <option value="donation">Donation (USDC)</option>
                       <option value="membership">Membership (Active Members)</option>
                     </select>
                   </div>
                   <div>
-                    <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px', color: '#888' }}>
+                    <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px', color: 'var(--muted)' }}>
                       Goal Name
                     </label>
                     <input
@@ -1495,7 +1617,7 @@ export default function Dashboard() {
                     />
                   </div>
                   <div>
-                    <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px', color: '#888' }}>
+                    <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px', color: 'var(--muted)' }}>
                       Target {newGoal.type === 'donation' ? '(USDC Amount)' : '(Number of Members)'}
                     </label>
                     <input
@@ -1514,8 +1636,8 @@ export default function Dashboard() {
                     onClick={() => setShowGoalForm(false)}
                     style={{
                       background: 'transparent',
-                      color: '#888',
-                      border: '1px solid #333',
+                      color: 'var(--muted)',
+                      border: '1px solid var(--border)',
                     }}
                   >
                     Cancel
@@ -1523,8 +1645,8 @@ export default function Dashboard() {
                   <button
                     onClick={createGoal}
                     style={{
-                      background: '#10b981',
-                      color: '#fff',
+                      background: 'var(--primary)',
+                      color: 'var(--primary-text)',
                     }}
                   >
                     Create Goal
@@ -1559,7 +1681,7 @@ export default function Dashboard() {
             onClick={(e) => e.stopPropagation()}
           >
             <h2 style={{ marginBottom: '12px' }}>Reset Demo Data?</h2>
-            <p style={{ color: '#888', marginBottom: '20px' }}>
+            <p style={{ color: 'var(--muted)', marginBottom: '20px' }}>
               This will clear all queued Q&A items and blocked wallets. This action cannot be undone.
             </p>
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
@@ -1567,8 +1689,8 @@ export default function Dashboard() {
                 onClick={() => setShowResetConfirm(false)}
                 style={{
                   background: 'transparent',
-                  color: '#888',
-                  border: '1px solid #333',
+                  color: 'var(--muted)',
+                  border: '1px solid var(--border)',
                 }}
               >
                 Cancel
@@ -1577,7 +1699,7 @@ export default function Dashboard() {
                 onClick={handleDemoReset}
                 disabled={resetLoading}
                 style={{
-                  background: '#dc2626',
+                  background: 'var(--danger)',
                   color: '#fff',
                 }}
               >

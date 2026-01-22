@@ -22,7 +22,8 @@ export function Skeleton({
         width,
         height,
         borderRadius,
-        background: 'linear-gradient(90deg, #1a1a1a 25%, #2a2a2a 50%, #1a1a1a 75%)',
+        background:
+          'linear-gradient(90deg, var(--panel-2) 25%, var(--panel) 50%, var(--panel-2) 75%)',
         backgroundSize: '200% 100%',
         animation: 'skeleton-shimmer 1.5s infinite',
         ...style,
@@ -52,8 +53,8 @@ export function ActionButtonSkeleton() {
     <div
       style={{
         padding: '16px',
-        background: '#1a1a1a',
-        border: '1px solid #333',
+        background: 'var(--panel-2)',
+        border: '1px solid var(--border)',
         borderRadius: 6,
         display: 'flex',
         flexDirection: 'column',
@@ -95,7 +96,7 @@ export function LeaderboardItemSkeleton() {
         justifyContent: 'space-between',
         alignItems: 'center',
         padding: '12px',
-        background: '#1a1a1a',
+        background: 'var(--panel-2)',
         borderRadius: '8px',
       }}
     >
@@ -123,7 +124,7 @@ export function MemberItemSkeleton() {
         justifyContent: 'space-between',
         alignItems: 'center',
         padding: '12px',
-        background: '#1a1a1a',
+        background: 'var(--panel-2)',
         borderRadius: '8px',
       }}
     >
@@ -145,7 +146,7 @@ export function GoalItemSkeleton() {
     <div
       style={{
         padding: '16px',
-        background: '#1a1a1a',
+        background: 'var(--panel-2)',
         borderRadius: '8px',
       }}
     >

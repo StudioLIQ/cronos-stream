@@ -118,7 +118,7 @@ export class ErrorBoundary extends Component<Props, State> {
                   marginBottom: '20px',
                 }}
               >
-                <p style={{ fontWeight: 600, marginBottom: '8px', color: '#ef4444' }}>{error.name}</p>
+                <p style={{ fontWeight: 600, marginBottom: '8px', color: 'var(--danger, #e02020)' }}>{error.name}</p>
                 <p style={{ fontSize: '14px', color: 'var(--muted, #9ca3af)', wordBreak: 'break-word' }}>
                   {error.message}
                 </p>
@@ -144,15 +144,15 @@ export class ErrorBoundary extends Component<Props, State> {
               >
                 Technical Details
               </summary>
-              <pre
-                style={{
-                  marginTop: '12px',
-                  padding: '12px',
-                  background: 'rgba(0,0,0,0.3)',
-                  borderRadius: '6px',
-                  fontSize: '12px',
-                  overflow: 'auto',
-                  maxHeight: '200px',
+	              <pre
+	                style={{
+	                  marginTop: '12px',
+	                  padding: '12px',
+	                  background: 'var(--code-bg, rgba(0,0,0,0.3))',
+	                  borderRadius: '6px',
+	                  fontSize: '12px',
+	                  overflow: 'auto',
+	                  maxHeight: '200px',
                   whiteSpace: 'pre-wrap',
                   wordBreak: 'break-word',
                 }}
@@ -160,15 +160,15 @@ export class ErrorBoundary extends Component<Props, State> {
                 {error?.stack}
               </pre>
               {errorInfo?.componentStack && (
-                <pre
-                  style={{
-                    marginTop: '8px',
-                    padding: '12px',
-                    background: 'rgba(0,0,0,0.3)',
-                    borderRadius: '6px',
-                    fontSize: '12px',
-                    overflow: 'auto',
-                    maxHeight: '200px',
+	                <pre
+	                  style={{
+	                    marginTop: '8px',
+	                    padding: '12px',
+	                    background: 'var(--code-bg, rgba(0,0,0,0.3))',
+	                    borderRadius: '6px',
+	                    fontSize: '12px',
+	                    overflow: 'auto',
+	                    maxHeight: '200px',
                     whiteSpace: 'pre-wrap',
                     wordBreak: 'break-word',
                   }}
@@ -179,18 +179,18 @@ export class ErrorBoundary extends Component<Props, State> {
             </details>
 
             <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-              <button
-                onClick={this.handleReload}
-                style={{
-                  padding: '12px 24px',
-                  background: '#3b82f6',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '8px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
+	              <button
+	                onClick={this.handleReload}
+	                style={{
+	                  padding: '12px 24px',
+	                  background: 'var(--primary, #00f889)',
+	                  color: 'var(--primary-text, #0e0f10)',
+	                  border: 'none',
+	                  borderRadius: '8px',
+	                  fontWeight: 600,
+	                  cursor: 'pointer',
+	                }}
+	              >
                 Reload Page
               </button>
               <button
