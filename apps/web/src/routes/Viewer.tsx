@@ -12,6 +12,7 @@ import { useToasts } from '../components/Toast';
 import { copyToClipboard } from '../lib/clipboard';
 import { ActionButtonSkeleton, Skeleton } from '../components/Skeleton';
 import { EmptyState } from '../components/EmptyState';
+import { useConfetti } from '../hooks/useConfetti';
 
 type PaymentState = 'idle' | 'needs_payment' | 'signing' | 'settling' | 'done' | 'error';
 
@@ -46,6 +47,7 @@ function parseUsdcToBaseUnits(input: string): { ok: true; baseUnits: string } | 
 export default function Viewer() {
   const { slug } = useParams<{ slug: string }>();
   const { addToast } = useToasts();
+  const { fireSuccess } = useConfetti();
   const [channel, setChannel] = useState<Channel | null>(null);
   const [actions, setActions] = useState<Action[]>([]);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
@@ -374,6 +376,7 @@ Expires At: ${nonceData.expiresAt}`;
       });
       setPaymentState('done');
       addToast('Effect triggered successfully!', 'success');
+      fireSuccess();
     } catch (err) {
       const message = (err as Error).message;
       addToast(message, 'error');
@@ -423,6 +426,7 @@ Expires At: ${nonceData.expiresAt}`;
       setQaState('done');
       setQaMessage('');
       addToast('Question submitted successfully!', 'success');
+      fireSuccess();
     } catch (err) {
       const message = (err as Error).message;
       addToast(message, 'error');
@@ -467,6 +471,7 @@ Expires At: ${nonceData.expiresAt}`;
       setMembershipResult(membershipResponse);
       setMembershipState('done');
       addToast('Membership activated successfully!', 'success');
+      fireSuccess();
 
       // Refresh membership status
       if (walletAddress) {
@@ -543,6 +548,7 @@ Expires At: ${nonceData.expiresAt}`;
       setDonationState('done');
       setDonationMessage('');
       addToast('Thank you for your donation!', 'success');
+      fireSuccess();
     } catch (err) {
       const message = (err as Error).message;
       addToast(message, 'error');
