@@ -32,6 +32,23 @@ interface QaCopilotAssist {
   provider: string;
 }
 
+interface StreamRecap {
+  title: string;
+  markdown: string;
+  tweet: string;
+  tags: string[];
+  provider: string;
+}
+
+interface StreamRecapStats {
+  totalRevenueBaseUnits: string;
+  supportCount: number;
+  uniqueSupporters: number;
+  kindCounts: Record<string, number>;
+  kindTotalsBaseUnits: Record<string, string>;
+  newMembers: number;
+}
+
 interface QaCreatedEvent {
   qaId: string;
   tier: string;
@@ -154,7 +171,7 @@ export default function Dashboard() {
   const [streamEmbedError, setStreamEmbedError] = useState<string | null>(null);
 
   // Tab state
-  const [activeTab, setActiveTab] = useState<'qa' | 'supports' | 'members' | 'goals'>('qa');
+  const [activeTab, setActiveTab] = useState<'qa' | 'supports' | 'members' | 'goals' | 'recap'>('qa');
 
   // Supports state
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
@@ -179,6 +196,15 @@ export default function Dashboard() {
   const [goalsLoading, setGoalsLoading] = useState(false);
   const [showGoalForm, setShowGoalForm] = useState(false);
   const [newGoal, setNewGoal] = useState({ type: 'donation' as 'donation' | 'membership', name: '', targetValue: '' });
+
+  // Recap state
+  const [recapPreset, setRecapPreset] = useState<'today' | '24h' | '7d'>('today');
+  const [recapLoading, setRecapLoading] = useState(false);
+  const [recapError, setRecapError] = useState<string | null>(null);
+  const [recapResult, setRecapResult] = useState<StreamRecap | null>(null);
+  const [recapStats, setRecapStats] = useState<StreamRecapStats | null>(null);
+  const [recapWindow, setRecapWindow] = useState<{ from: string; to: string } | null>(null);
+  const [recapCopied, setRecapCopied] = useState<'markdown' | 'tweet' | null>(null);
 
   // Stats state
   const [stats, setStats] = useState<{
@@ -879,6 +905,60 @@ export default function Dashboard() {
     }
   };
 
+  const handleGenerateRecap = async () => {
+    if (!slug || !token) return;
+    setRecapLoading(true);
+    setRecapError(null);
+    setRecapCopied(null);
+
+    try {
+      const now = new Date();
+      let from: Date;
+
+      if (recapPreset === 'today') {
+        from = new Date(now);
+        from.setHours(0, 0, 0, 0);
+      } else if (recapPreset === '7d') {
+        from = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      } else {
+        from = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      }
+
+      const res = await fetch(`${API_BASE}/channels/${slug}/recap`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ preset: recapPreset, from: from.toISOString(), to: now.toISOString() }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        const msg = data?.reason ? `${data.error}: ${data.reason}` : data.error || 'Failed to generate recap';
+        throw new Error(msg);
+      }
+
+      setRecapResult(data.recap as StreamRecap);
+      setRecapStats(data.stats as StreamRecapStats);
+      setRecapWindow({ from: data.window?.from, to: data.window?.to });
+    } catch (err) {
+      setRecapError((err as Error).message);
+    } finally {
+      setRecapLoading(false);
+    }
+  };
+
+  const handleCopyRecap = async (kind: 'markdown' | 'tweet') => {
+    if (!recapResult) return;
+    const text = kind === 'tweet' ? recapResult.tweet : recapResult.markdown;
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setRecapCopied(kind);
+      window.setTimeout(() => setRecapCopied(null), 1000);
+    }
+  };
+
   if (!authenticated) {
     return (
       <div>
@@ -978,6 +1058,17 @@ export default function Dashboard() {
             }}
           >
             Goals
+          </button>
+          <button
+            onClick={() => setActiveTab('recap')}
+            style={{
+              background: activeTab === 'recap' ? 'var(--primary)' : 'var(--panel-2)',
+              color: activeTab === 'recap' ? 'var(--primary-text)' : 'var(--text)',
+              border: '1px solid var(--border)',
+              padding: '8px 16px',
+            }}
+          >
+            Recap
           </button>
         </div>
         {activeTab === 'qa' && (
@@ -1980,6 +2071,109 @@ export default function Dashboard() {
                     Create Goal
                   </button>
                 </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Recap Tab */}
+      {activeTab === 'recap' && (
+        <div className="card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', gap: '12px', flexWrap: 'wrap' }}>
+            <div>
+              <h2 style={{ marginBottom: '6px' }}>Stream Recap</h2>
+              <p style={{ margin: 0, color: 'var(--muted)', fontSize: '13px' }}>
+                Generate a post-stream recap (local Ollama). Output avoids full wallet addresses.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <select
+                value={recapPreset}
+                onChange={(e) => setRecapPreset(e.target.value as 'today' | '24h' | '7d')}
+                style={{ padding: '8px', background: 'var(--panel-2)', color: 'var(--text)', border: '1px solid var(--border)' }}
+              >
+                <option value="today">Today</option>
+                <option value="24h">Last 24h</option>
+                <option value="7d">Last 7d</option>
+              </select>
+              <button
+                onClick={handleGenerateRecap}
+                disabled={recapLoading}
+                style={{ background: 'var(--primary)', color: 'var(--primary-text)', padding: '8px 16px' }}
+              >
+                {recapLoading ? 'Generating...' : 'Generate'}
+              </button>
+            </div>
+          </div>
+
+          {recapError && (
+            <p style={{ marginTop: 0, marginBottom: '12px', color: 'var(--danger)', fontSize: '13px' }}>
+              {recapError}
+            </p>
+          )}
+
+          {recapWindow && recapWindow.from && recapWindow.to && (
+            <p style={{ marginTop: 0, marginBottom: '12px', color: 'var(--muted)', fontSize: '12px' }}>
+              Window: {new Date(recapWindow.from).toLocaleString()} → {new Date(recapWindow.to).toLocaleString()}
+            </p>
+          )}
+
+          {recapStats && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px', marginBottom: '12px' }}>
+              <div style={{ padding: '10px', border: '1px solid var(--border)', borderRadius: '8px', background: 'var(--panel-2)' }}>
+                <div style={{ color: 'var(--muted)', fontSize: '12px' }}>Revenue</div>
+                <div style={{ fontWeight: 700, fontSize: '18px' }}>${formatUSDC(recapStats.totalRevenueBaseUnits)}</div>
+              </div>
+              <div style={{ padding: '10px', border: '1px solid var(--border)', borderRadius: '8px', background: 'var(--panel-2)' }}>
+                <div style={{ color: 'var(--muted)', fontSize: '12px' }}>Supporters</div>
+                <div style={{ fontWeight: 700, fontSize: '18px' }}>{recapStats.uniqueSupporters}</div>
+              </div>
+              <div style={{ padding: '10px', border: '1px solid var(--border)', borderRadius: '8px', background: 'var(--panel-2)' }}>
+                <div style={{ color: 'var(--muted)', fontSize: '12px' }}>Transactions</div>
+                <div style={{ fontWeight: 700, fontSize: '18px' }}>{recapStats.supportCount}</div>
+              </div>
+              <div style={{ padding: '10px', border: '1px solid var(--border)', borderRadius: '8px', background: 'var(--panel-2)' }}>
+                <div style={{ color: 'var(--muted)', fontSize: '12px' }}>New Members</div>
+                <div style={{ fontWeight: 700, fontSize: '18px' }}>{recapStats.newMembers}</div>
+              </div>
+            </div>
+          )}
+
+          {!recapResult && (
+            <p style={{ margin: 0, color: 'var(--muted)', fontSize: '13px' }}>
+              Click Generate to create a recap based on settled supports and Q&A activity.
+            </p>
+          )}
+
+          {recapResult && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <h3 style={{ margin: 0 }}>{recapResult.title}</h3>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    onClick={() => handleCopyRecap('markdown')}
+                    style={{ background: 'var(--panel-2)', border: '1px solid var(--border)', color: 'var(--text)' }}
+                  >
+                    {recapCopied === 'markdown' ? 'Copied' : 'Copy Markdown'}
+                  </button>
+                  <button
+                    onClick={() => handleCopyRecap('tweet')}
+                    style={{ background: 'var(--panel-2)', border: '1px solid var(--border)', color: 'var(--text)' }}
+                  >
+                    {recapCopied === 'tweet' ? 'Copied' : 'Copy Tweet'}
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ padding: '12px', border: '1px solid var(--border)', borderRadius: '8px', background: 'var(--panel-2)' }}>
+                <div style={{ color: 'var(--muted)', fontSize: '12px', marginBottom: '6px' }}>Markdown</div>
+                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: '13px', lineHeight: 1.5 }}>{recapResult.markdown}</pre>
+              </div>
+
+              <div style={{ padding: '12px', border: '1px solid var(--border)', borderRadius: '8px', background: 'var(--panel-2)' }}>
+                <div style={{ color: 'var(--muted)', fontSize: '12px', marginBottom: '6px' }}>Tweet</div>
+                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: '13px', lineHeight: 1.5 }}>{recapResult.tweet}</pre>
               </div>
             </div>
           )}

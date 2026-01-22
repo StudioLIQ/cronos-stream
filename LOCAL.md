@@ -111,11 +111,13 @@ DB_NAME=stream402
 # MEMBERSHIP_NFT_ADDRESS_CRONOS_MAINNET=0x...
 # MEMBERSHIP_NFT_MINTER_PRIVATE_KEY=0x...
 
-# (선택) 로컬 AI (Ollama) — Q&A Copilot + moderation
+# (선택) 로컬 AI (Ollama) — Q&A Copilot + Stream Recap + moderation
 # - Dashboard의 Q&A 카드에서 "AI Assist" 버튼이 동작합니다.
+# - Dashboard의 Recap 탭에서 "Generate" 버튼이 동작합니다.
 # - 로컬에서만 무료로 쓰는 용도(서버에 Ollama가 떠 있어야 함)
 # OLLAMA_URL=http://127.0.0.1:11434
 # OLLAMA_ASSIST_MODEL=llama3.2:3b
+# OLLAMA_RECAP_MODEL=llama3.2:3b
 # MODERATION_PROVIDER=ollama
 # OLLAMA_MODEL=llama3.2:1b
 # OLLAMA_TIMEOUT_MS=4000
@@ -143,7 +145,7 @@ DB_NAME=stream402
 
 ## (선택) 로컬 AI(Ollama) 설정
 
-Dashboard Q&A에서 **요약/답변 초안**을 뽑는 Copilot 기능을 로컬 Ollama로 돌릴 수 있습니다.
+Dashboard에서 **Q&A Copilot(요약/답변 초안)**, **Stream Recap 생성**을 로컬 Ollama로 돌릴 수 있습니다.
 
 1) Ollama 실행
 2) 모델 준비(예시):
@@ -157,6 +159,7 @@ ollama pull llama3.2:3b
 ```env
 OLLAMA_URL=http://127.0.0.1:11434
 OLLAMA_ASSIST_MODEL=llama3.2:3b
+OLLAMA_RECAP_MODEL=llama3.2:3b
 ```
 
 ### 2-2) 데모/테스트넷 공용 설정(옵션)
