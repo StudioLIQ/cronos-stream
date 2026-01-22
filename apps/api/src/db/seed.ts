@@ -10,6 +10,7 @@ interface Channel {
 
 const SELLER_WALLET = process.env.SELLER_WALLET || '0x0000000000000000000000000000000000000000';
 const DEFAULT_NETWORK = process.env.DEFAULT_NETWORK || 'cronos-testnet';
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
 type SeedChannel = {
   slug: string;
@@ -285,8 +286,10 @@ export async function seed(): Promise<void> {
 
   await transaction(async (conn) => {
     for (const ch of seedChannels) {
-      const existing = await queryOne<Channel & { streamEmbedUrl: string | null }>(
-        'SELECT id, slug, streamEmbedUrl FROM channels WHERE slug = ?',
+      const existing = await queryOne<
+        Channel & { streamEmbedUrl: string | null; payToAddress: string; network: string }
+      >(
+        'SELECT id, slug, streamEmbedUrl, payToAddress, network FROM channels WHERE slug = ?',
         [ch.slug],
         conn
       );
@@ -310,6 +313,16 @@ export async function seed(): Promise<void> {
           await execute('UPDATE channels SET streamEmbedUrl = ? WHERE id = ?', [ch.streamEmbedUrl, channelId], conn);
           updatedSlugs.push(ch.slug);
         }
+      }
+
+      // Backfill payToAddress if it was seeded with the zero address and is now configured.
+      if (
+        existing &&
+        existing.payToAddress?.toLowerCase() === ZERO_ADDRESS &&
+        SELLER_WALLET.toLowerCase() !== ZERO_ADDRESS
+      ) {
+        await execute('UPDATE channels SET payToAddress = ?, network = ? WHERE id = ?', [SELLER_WALLET, DEFAULT_NETWORK, channelId], conn);
+        updatedSlugs.push(ch.slug);
       }
 
       await ensureDefaultActions(channelId, conn);

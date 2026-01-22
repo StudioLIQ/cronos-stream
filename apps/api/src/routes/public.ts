@@ -3,6 +3,7 @@ import { queryOne, queryAll } from '../db/db.js';
 import { config } from '../config.js';
 import { NETWORKS } from '../x402/constants.js';
 import { checkYouTubeChannelLive } from '../lib/youtubeLive.js';
+import { getMembershipNftContractAddress, getMembershipTokenId } from '../lib/membershipNft.js';
 
 const router = Router();
 
@@ -183,7 +184,7 @@ router.get('/channels/:slug/memberships/me', async (req, res, next) => {
       return;
     }
 
-    const channel = await queryOne<{ id: string }>('SELECT id FROM channels WHERE slug = ?', [slug]);
+    const channel = await queryOne<{ id: string; network: string }>('SELECT id, network FROM channels WHERE slug = ?', [slug]);
     if (!channel) {
       res.status(404).json({ error: 'Channel not found' });
       return;
@@ -201,22 +202,43 @@ router.get('/channels/:slug/memberships/me', async (req, res, next) => {
       res.json({
         active: false,
         membership: null,
+        nft: null,
       });
       return;
     }
 
-    const expiresAt = new Date(membership.expiresAt);
-    const now = new Date();
-    const isActive = !membership.revoked && expiresAt > now;
+    const membershipNftContract = getMembershipNftContractAddress(channel.network);
+    const isRevoked = membership.revoked === 1;
+    let isActive = !isRevoked;
+    let memberSince: string | null = membership.createdAt;
+
+    if (membershipNftContract && !isRevoked) {
+      const minted = await queryOne<{ memberSince: string | null; mintCount: number }>(
+        `SELECT MIN(createdAt) as memberSince, COUNT(*) as mintCount
+         FROM payments
+         WHERE channelId = ? AND fromAddress = ?
+           AND kind = 'membership' AND status = 'settled' AND nftTxHash IS NOT NULL`,
+        [channel.id, address]
+      );
+      const mintCount = minted?.mintCount || 0;
+      isActive = mintCount > 0;
+      memberSince = minted?.memberSince || null;
+    }
 
     res.json({
       active: isActive,
       membership: {
         planId: membership.planId,
         planName: membership.planName,
-        expiresAt: membership.expiresAt,
-        revoked: membership.revoked === 1,
+        memberSince,
+        revoked: isRevoked,
       },
+      nft: membershipNftContract
+        ? {
+            contractAddress: membershipNftContract,
+            tokenId: getMembershipTokenId(slug).toString(),
+          }
+        : null,
     });
   } catch (err) {
     next(err);

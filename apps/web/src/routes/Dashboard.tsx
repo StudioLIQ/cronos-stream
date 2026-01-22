@@ -97,7 +97,7 @@ interface MemberItem {
   fromAddress: string;
   planId: string;
   planName: string;
-  expiresAt: string;
+  memberSince: string | null;
   revoked: boolean;
   active: boolean;
   createdAt: string;
@@ -551,13 +551,23 @@ export default function Dashboard() {
 
       const data = await res.json();
       const csv = generateCsv(
-        data.items.map((item: { id: string; fromAddress: string; displayName: string | null; planId: string; planName: string; expiresAt: string; revoked: boolean; active: boolean; createdAt: string }) => ({
+        data.items.map((item: {
+          id: string;
+          fromAddress: string;
+          displayName: string | null;
+          planId: string;
+          planName: string;
+          memberSince: string | null;
+          revoked: boolean;
+          active: boolean;
+          createdAt: string;
+        }) => ({
           id: item.id,
           fromAddress: item.fromAddress,
           displayName: item.displayName || '',
           planName: item.planName,
-          status: item.active ? 'Active' : item.revoked ? 'Revoked' : 'Expired',
-          expiresAt: formatDatetime(item.expiresAt),
+          status: item.active ? 'Active' : item.revoked ? 'Revoked' : 'Inactive',
+          memberSince: item.memberSince ? formatDatetime(item.memberSince) : '',
           createdAt: formatDatetime(item.createdAt),
         })),
         [
@@ -566,7 +576,7 @@ export default function Dashboard() {
           { key: 'displayName', header: 'Display Name' },
           { key: 'planName', header: 'Plan' },
           { key: 'status', header: 'Status' },
-          { key: 'expiresAt', header: 'Expires At' },
+          { key: 'memberSince', header: 'Member Since' },
           { key: 'createdAt', header: 'Created At' },
         ]
       );
@@ -1518,7 +1528,7 @@ export default function Dashboard() {
                   padding: '6px 12px',
                 }}
               >
-                {status.charAt(0).toUpperCase() + status.slice(1)}
+                {status === 'expired' ? 'Inactive' : status.charAt(0).toUpperCase() + status.slice(1)}
               </button>
             ))}
           </div>
@@ -1555,7 +1565,7 @@ export default function Dashboard() {
               description={
                 memberFilter === 'active'
                   ? 'Active channel members will appear here. Set up membership plans to start accepting subscribers.'
-                  : `No ${memberFilter} members found.`
+                  : `No ${memberFilter === 'expired' ? 'inactive' : memberFilter} members found.`
               }
             />
           )}
@@ -1589,12 +1599,13 @@ export default function Dashboard() {
                           : '#9da5b6',
                       }}
                     >
-                      {member.active ? 'Active' : member.revoked ? 'Revoked' : 'Expired'}
+                      {member.active ? 'Active' : member.revoked ? 'Revoked' : 'Inactive'}
                     </span>
                     {`${member.fromAddress.slice(0, 6)}...${member.fromAddress.slice(-4)}`}
                   </p>
                   <p style={{ fontSize: '12px', color: 'var(--muted)' }}>
-                    {member.planName} - Expires: {new Date(member.expiresAt).toLocaleDateString()}
+                    {member.planName} — Member since:{' '}
+                    {member.memberSince ? new Date(member.memberSince).toLocaleDateString() : '—'}
                   </p>
                 </div>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>

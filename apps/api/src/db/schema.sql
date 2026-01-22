@@ -60,6 +60,8 @@ CREATE TABLE IF NOT EXISTS payments (
   value VARCHAR(64) NOT NULL,
   nonce VARCHAR(128) NOT NULL,
   txHash VARCHAR(128) NULL,
+  nftTxHash VARCHAR(128) NULL,
+  nftError TEXT NULL,
   blockNumber BIGINT NULL,
   timestamp BIGINT NULL,
   error TEXT NULL,

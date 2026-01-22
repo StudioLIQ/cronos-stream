@@ -65,6 +65,47 @@ export interface UpdateChannelResponse {
   streamEmbedUrl: string | null;
 }
 
+function extractErrorMessage(data: unknown, fallback: string): string {
+  const obj = data as Record<string, unknown> | null;
+  const error = obj && typeof obj.error === 'string' ? obj.error : fallback;
+  const reason = obj && typeof obj.reason === 'string' ? obj.reason : null;
+  return reason ? `${error}: ${reason}` : error;
+}
+
+export type AgentStep =
+  | { kind: 'effect'; actionKey: string }
+  | { kind: 'donation'; amountBaseUnits: string; message: string | null; displayName: string | null }
+  | { kind: 'qa'; message: string; tier: 'normal' | 'priority'; displayName: string | null }
+  | { kind: 'membership'; planId: string };
+
+export interface AgentPlan {
+  steps: AgentStep[];
+  summary: string;
+  warnings: string[];
+}
+
+export async function planAgent(
+  slug: string,
+  input: string,
+  options: { maxSteps?: number } = {}
+): Promise<AgentPlan> {
+  const res = await fetch(`${API_BASE}/channels/${slug}/agent/plan`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ input, maxSteps: options.maxSteps }),
+  });
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new Error(data.error || 'Failed to build agent plan');
+  }
+
+  return data.plan as AgentPlan;
+}
+
 export async function fetchChannel(slug: string): Promise<Channel> {
   const res = await fetch(`${API_BASE}/channels/${slug}`);
   if (!res.ok) throw new Error('Channel not found');
@@ -114,7 +155,7 @@ export async function triggerAction(
   }
 
   if (!res.ok) {
-    throw new Error(data.error || 'Failed to trigger action');
+    throw new Error(extractErrorMessage(data, 'Failed to trigger action'));
   }
 
   return data as PaymentResponse;
@@ -147,7 +188,7 @@ export async function donate(
   }
 
   if (!res.ok) {
-    throw new Error(data.error || 'Failed to donate');
+    throw new Error(extractErrorMessage(data, 'Failed to donate'));
   }
 
   return data as PaymentResponse;
@@ -180,7 +221,7 @@ export async function submitQA(
   }
 
   if (!res.ok) {
-    throw new Error(data.error || 'Failed to submit Q&A');
+    throw new Error(extractErrorMessage(data, 'Failed to submit Q&A'));
   }
 
   return data as PaymentResponse;
@@ -232,8 +273,12 @@ export interface MembershipStatus {
   membership: {
     planId: string;
     planName: string;
-    expiresAt: string;
+    memberSince: string | null;
     revoked: boolean;
+  } | null;
+  nft: {
+    contractAddress: string;
+    tokenId: string;
   } | null;
 }
 
@@ -241,7 +286,6 @@ export interface MembershipResponse {
   ok: true;
   membership: {
     planId: string;
-    expiresAt: string;
   };
   payment: {
     paymentId: string;
@@ -250,6 +294,12 @@ export interface MembershipResponse {
     to: string;
     value: string;
     blockNumber?: number;
+  };
+  nft?: {
+    txHash: string;
+    contractAddress: string;
+    tokenId: string;
+    amount: string;
   };
   cached?: boolean;
 }
@@ -291,7 +341,7 @@ export async function subscribeMembership(
   }
 
   if (!res.ok) {
-    throw new Error(data.error || 'Failed to subscribe');
+    throw new Error(extractErrorMessage(data, 'Failed to subscribe'));
   }
 
   return data as MembershipResponse;

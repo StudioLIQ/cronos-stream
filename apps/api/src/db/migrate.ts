@@ -104,6 +104,19 @@ export async function migrate(db: Pool): Promise<void> {
     ddl: `ALTER TABLE payments ADD COLUMN membershipPlanId CHAR(36) NULL AFTER qaId`,
   });
 
+  // T11: Membership NFTs - store mint tx hash/errors for membership receipts
+  await ensureColumnExists(db, {
+    table: 'payments',
+    column: 'nftTxHash',
+    ddl: `ALTER TABLE payments ADD COLUMN nftTxHash VARCHAR(128) NULL AFTER txHash`,
+  });
+
+  await ensureColumnExists(db, {
+    table: 'payments',
+    column: 'nftError',
+    ddl: `ALTER TABLE payments ADD COLUMN nftError TEXT NULL AFTER nftTxHash`,
+  });
+
   // Add indexes for support history queries
   await ensureIndexExists(db, {
     table: 'payments',

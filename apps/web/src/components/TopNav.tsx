@@ -1,13 +1,59 @@
 import { Link } from 'react-router-dom';
-import type { ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ThemeToggle } from './ThemeToggle';
 import { useWallet } from '../contexts/WalletContext';
 import { useToasts } from './Toast';
 import { copyToClipboard } from '../lib/clipboard';
+import { formatUsdcAmount } from '../lib/x402';
+import { fetchUsdcBalanceBaseUnits, getUsdcAddress } from '../lib/usdc';
 
 export function TopNav({ children }: { children?: ReactNode }) {
-  const { address, isConnected, isConnecting, connect } = useWallet();
+  const { address, signer, chainId, isConnected, isConnecting, connect } = useWallet();
   const { addToast } = useToasts();
+
+  const usdcAddress = useMemo(() => getUsdcAddress(chainId), [chainId]);
+  const [usdcBalanceBaseUnits, setUsdcBalanceBaseUnits] = useState<string | null>(null);
+  const [isUsdcBalanceLoading, setIsUsdcBalanceLoading] = useState(false);
+
+  useEffect(() => {
+    if (!isConnected || !address || !signer || !chainId || !usdcAddress) {
+      setUsdcBalanceBaseUnits(null);
+      setIsUsdcBalanceLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const refresh = async () => {
+      setIsUsdcBalanceLoading(true);
+      try {
+        const nextBalance = await fetchUsdcBalanceBaseUnits(signer, address, chainId);
+        if (cancelled) return;
+        setUsdcBalanceBaseUnits(nextBalance);
+      } catch {
+        if (cancelled) return;
+        setUsdcBalanceBaseUnits(null);
+      } finally {
+        if (cancelled) return;
+        setIsUsdcBalanceLoading(false);
+      }
+    };
+
+    refresh();
+    const interval = setInterval(refresh, 15_000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [isConnected, address, signer, chainId, usdcAddress]);
+
+  const usdcBalanceText = useMemo(() => {
+    if (!usdcAddress) return '$— USDC';
+    if (usdcBalanceBaseUnits) return `$${formatUsdcAmount(usdcBalanceBaseUnits)} USDC`;
+    if (isUsdcBalanceLoading) return '$… USDC';
+    return '$— USDC';
+  }, [usdcAddress, usdcBalanceBaseUnits, isUsdcBalanceLoading]);
 
   const handleConnect = async () => {
     try {
@@ -48,20 +94,36 @@ export function TopNav({ children }: { children?: ReactNode }) {
               {isConnecting ? 'Connecting…' : 'Connect Wallet'}
             </button>
           ) : (
-            <button
-              onClick={handleCopyAddress}
-              title="Copy wallet address"
-              style={{
-                background: 'transparent',
-                border: '1px solid var(--border)',
-                padding: '8px 12px',
-                borderRadius: '999px',
-                fontSize: '13px',
-                color: 'var(--muted)',
-              }}
-            >
-              {address?.slice(0, 6)}...{address?.slice(-4)}
-            </button>
+            <>
+              <div
+                title={usdcAddress ? 'USDC.e balance (refreshes every 15s)' : 'USDC.e balance unavailable on this network'}
+                style={{
+                  background: 'var(--panel-2)',
+                  border: '1px solid var(--border)',
+                  padding: '8px 12px',
+                  borderRadius: '999px',
+                  fontSize: '13px',
+                  color: 'var(--text)',
+                  userSelect: 'none',
+                }}
+              >
+                {usdcBalanceText}
+              </div>
+              <button
+                onClick={handleCopyAddress}
+                title="Copy wallet address"
+                style={{
+                  background: 'transparent',
+                  border: '1px solid var(--border)',
+                  padding: '8px 12px',
+                  borderRadius: '999px',
+                  fontSize: '13px',
+                  color: 'var(--muted)',
+                }}
+              >
+                {address?.slice(0, 6)}...{address?.slice(-4)}
+              </button>
+            </>
           )}
           <ThemeToggle />
         </div>

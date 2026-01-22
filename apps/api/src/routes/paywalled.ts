@@ -12,11 +12,15 @@ import {
   createVerifiedPayment,
   markPaymentSettled,
   markPaymentFailed,
+  markPaymentNftMinted,
+  markPaymentNftFailed,
   updatePaymentContext,
 } from '../x402/idempotency.js';
 import { broadcastToOverlay, broadcastToDashboard, broadcastToAll } from '../sse/broker.js';
 import type { SettleSuccessResponse } from '../x402/types.js';
 import { getEffectiveDisplayName } from './profile.js';
+import { moderateText } from '../agent/moderation.js';
+import { getMembershipNftContractAddress, getMembershipTokenId, isMembershipNftConfigured, mintMembershipNft } from '../lib/membershipNft.js';
 
 interface SupportAlertData {
   kind: 'effect' | 'qa' | 'donation' | 'membership';
@@ -48,7 +52,40 @@ interface ActiveMembership {
   planName: string;
 }
 
-async function getActiveMembership(channelId: string, address: string): Promise<ActiveMembership | null> {
+async function getActiveMembership(params: {
+  channelId: string;
+  network: string;
+  address: string;
+}): Promise<ActiveMembership | null> {
+  const { channelId, network, address } = params;
+
+  const membershipNftContract = getMembershipNftContractAddress(network);
+
+  if (membershipNftContract) {
+    const membership = await queryOne<{
+      planId: string;
+      planName: string;
+    }>(
+      `SELECT m.planId, p.name as planName
+       FROM memberships m
+       JOIN membership_plans p ON m.planId = p.id
+       WHERE m.channelId = ? AND m.fromAddress = ? AND m.revoked = 0
+         AND EXISTS (
+           SELECT 1 FROM payments pay
+           WHERE pay.channelId = m.channelId
+             AND pay.fromAddress = m.fromAddress
+             AND pay.kind = 'membership'
+             AND pay.status = 'settled'
+             AND pay.nftTxHash IS NOT NULL
+         )`,
+      [channelId, address.toLowerCase()]
+    );
+
+    if (!membership) return null;
+    return membership;
+  }
+
+  // Legacy (non-NFT) membership: DB-backed membership (no expiry).
   const membership = await queryOne<{
     planId: string;
     planName: string;
@@ -64,9 +101,6 @@ async function getActiveMembership(channelId: string, address: string): Promise<
 
   if (!membership) return null;
   if (membership.revoked) return null;
-
-  const expiresAt = new Date(membership.expiresAt);
-  if (expiresAt <= new Date()) return null;
 
   return {
     planId: membership.planId,
@@ -89,6 +123,18 @@ async function isWalletBlocked(channelId: string, fromAddress: string): Promise<
     [channelId, fromAddress.toLowerCase()]
   );
   return !!blocked;
+}
+
+async function blockWallet(channelId: string, fromAddress: string, reason: string): Promise<void> {
+  const id = uuid();
+  try {
+    await execute(
+      'INSERT INTO blocks (id, channelId, fromAddress, reason) VALUES (?, ?, ?, ?)',
+      [id, channelId, fromAddress.toLowerCase(), reason]
+    );
+  } catch {
+    // Might already be blocked (unique constraint), ignore
+  }
 }
 
 interface GoalRow {
@@ -152,9 +198,10 @@ async function updateDonationGoalProgress(slug: string, channelId: string, value
 }
 
 // Update membership goal progress (count active members)
-async function updateMembershipGoalProgress(slug: string, channelId: string): Promise<void> {
+async function updateMembershipGoalProgress(slug: string, channelId: string, network: string): Promise<void> {
   try {
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const membershipNftContract = getMembershipNftContractAddress(network);
 
     // Get active membership goals
     const goals = await queryAll<GoalRow>(
@@ -168,11 +215,26 @@ async function updateMembershipGoalProgress(slug: string, channelId: string): Pr
     if (goals.length === 0) return;
 
     // Count active members
-    const countResult = await queryOne<{ count: number }>(
-      `SELECT COUNT(*) as count FROM memberships
-       WHERE channelId = ? AND revoked = 0 AND expiresAt > ?`,
-      [channelId, now]
-    );
+    const countResult = membershipNftContract
+      ? await queryOne<{ count: number }>(
+          `SELECT COUNT(*) as count
+           FROM memberships m
+           WHERE m.channelId = ? AND m.revoked = 0
+             AND EXISTS (
+               SELECT 1 FROM payments pay
+               WHERE pay.channelId = m.channelId
+                 AND pay.fromAddress = m.fromAddress
+                 AND pay.kind = 'membership'
+                 AND pay.status = 'settled'
+                 AND pay.nftTxHash IS NOT NULL
+             )`,
+          [channelId]
+        )
+      : await queryOne<{ count: number }>(
+          `SELECT COUNT(*) as count FROM memberships
+           WHERE channelId = ? AND revoked = 0`,
+          [channelId]
+        );
     const activeMemberCount = countResult?.count?.toString() || '0';
 
     for (const goal of goals) {
@@ -310,6 +372,14 @@ router.post('/channels/:slug/trigger', async (req: Request, res: Response, next:
     if (!verifyResult.isValid) {
       logger.warn('Payment verification failed', { paymentId, reason: verifyResult.invalidReason });
       res.status(400).json({ error: 'Payment verification failed', reason: verifyResult.invalidReason });
+      return;
+    }
+
+    // Enforce channel blocks AFTER verify (so fromAddress is authenticated)
+    const fromAddress = paymentHeader.payload.from;
+    if (await isWalletBlocked(channel.id, fromAddress)) {
+      logger.warn('Blocked wallet attempted effect trigger', { paymentId, fromAddress, actionKey });
+      res.status(403).json({ error: 'Your wallet has been blocked from this channel' });
       return;
     }
 
@@ -502,6 +572,27 @@ router.post('/channels/:slug/qa', async (req: Request, res: Response, next: Next
       return;
     }
 
+    // Agentic moderation gate (AFTER verify, BEFORE settle)
+    const moderationInput = [
+      typeof displayName === 'string' && displayName.trim() ? `displayName: ${displayName.trim()}` : null,
+      `message: ${message}`,
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const moderation = await moderateText(moderationInput);
+    if (moderation.action === 'reject') {
+      logger.warn('Q&A rejected by moderation', { paymentId, fromAddress, tags: moderation.tags, provider: moderation.provider });
+      res.status(400).json({ error: moderation.reason || 'Message rejected by moderation' });
+      return;
+    }
+    if (moderation.action === 'block') {
+      await blockWallet(channel.id, fromAddress, moderation.reason || 'Blocked by moderation agent');
+      logger.warn('Wallet blocked by moderation', { paymentId, fromAddress, tags: moderation.tags, provider: moderation.provider });
+      res.status(403).json({ error: moderation.reason || 'Your wallet has been blocked from this channel' });
+      return;
+    }
+
     // Generate Q&A ID early so we can store it in payment context
     const qaId = uuid();
 
@@ -537,7 +628,7 @@ router.post('/channels/:slug/qa', async (req: Request, res: Response, next: Next
     const effectiveDisplayName = await getEffectiveDisplayName(channel.id, fromAddress) || displayName || null;
 
     // Check membership status at time of submit
-    const activeMembership = await getActiveMembership(channel.id, fromAddress);
+    const activeMembership = await getActiveMembership({ channelId: channel.id, network: channel.network, address: fromAddress });
     const isMember = activeMembership !== null;
     const memberPlanId = activeMembership?.planId || null;
 
@@ -710,6 +801,32 @@ router.post('/channels/:slug/donate', async (req: Request, res: Response, next: 
       return;
     }
 
+    // Agentic moderation gate (AFTER verify, BEFORE settle)
+    const fromAddress = paymentHeader.payload.from;
+    if (await isWalletBlocked(channel.id, fromAddress)) {
+      logger.warn('Blocked wallet attempted donation', { paymentId, fromAddress });
+      res.status(403).json({ error: 'Your wallet has been blocked from this channel' });
+      return;
+    }
+
+    const moderationParts: string[] = [];
+    if (typeof displayName === 'string' && displayName.trim()) moderationParts.push(`displayName: ${displayName.trim()}`);
+    if (typeof message === 'string' && message.trim()) moderationParts.push(`message: ${message.trim()}`);
+    if (moderationParts.length > 0) {
+      const moderation = await moderateText(moderationParts.join('\n'));
+      if (moderation.action === 'reject') {
+        logger.warn('Donation rejected by moderation', { paymentId, fromAddress, tags: moderation.tags, provider: moderation.provider });
+        res.status(400).json({ error: moderation.reason || 'Message rejected by moderation' });
+        return;
+      }
+      if (moderation.action === 'block') {
+        await blockWallet(channel.id, fromAddress, moderation.reason || 'Blocked by moderation agent');
+        logger.warn('Wallet blocked by moderation (donation)', { paymentId, fromAddress, tags: moderation.tags, provider: moderation.provider });
+        res.status(403).json({ error: moderation.reason || 'Your wallet has been blocked from this channel' });
+        return;
+      }
+    }
+
     // Create payment record (if new)
     if (!existing) {
       await createVerifiedPayment({
@@ -833,6 +950,17 @@ router.post('/channels/:slug/memberships', async (req: Request, res: Response, n
       return;
     }
 
+    const membershipNftContract = getMembershipNftContractAddress(channel.network);
+    const useMembershipNft = Boolean(membershipNftContract);
+
+    if (useMembershipNft && !isMembershipNftConfigured(channel.network)) {
+      res.status(500).json({
+        error: 'Membership NFT is not configured',
+        reason: 'Set MEMBERSHIP_NFT_ADDRESS_* and MEMBERSHIP_NFT_MINTER_PRIVATE_KEY on the API',
+      });
+      return;
+    }
+
     // Check for payment header
     const paymentHeaderBase64 = getPaymentHeader(req);
 
@@ -851,32 +979,145 @@ router.post('/channels/:slug/memberships', async (req: Request, res: Response, n
     // Check idempotency
     const { paymentId, existing } = await checkIdempotency(paymentHeaderBase64, channel.id);
 
-    if (existing && existing.status === 'settled') {
-      // Check if membership already exists for this payment
+    if (existing) {
+      if (existing.channelId !== channel.id) {
+        res.status(409).json({ error: 'Payment header already used for another channel' });
+        return;
+      }
+      if (existing.kind && existing.kind !== 'membership') {
+        res.status(409).json({ error: `Payment header already used for: ${existing.kind}` });
+        return;
+      }
+      if (existing.membershipPlanId && existing.membershipPlanId !== planId) {
+        res.status(409).json({ error: 'Payment header already used for a different membership plan' });
+        return;
+      }
+    }
+
+    const foreverExpiresAt = '9999-12-31 23:59:59';
+
+    const upsertMembership = async (
+      fromAddress: string,
+      opts: { reactivate: boolean }
+    ): Promise<void> => {
       const existingMembership = await queryOne<MembershipRow>(
-        'SELECT * FROM memberships WHERE channelId = ? AND lastPaymentId = ?',
-        [channel.id, paymentId]
+        'SELECT * FROM memberships WHERE channelId = ? AND fromAddress = ?',
+        [channel.id, fromAddress]
       );
 
       if (existingMembership) {
-        logger.info('Returning cached membership for duplicate request', { paymentId });
-        res.json({
-          ok: true,
-          cached: true,
-          membership: {
-            planId: existingMembership.planId,
-            expiresAt: existingMembership.expiresAt,
-          },
-          payment: {
-            paymentId,
-            txHash: existing.txHash,
-            from: existing.fromAddress,
-            to: existing.toAddress,
-            value: existing.value,
-          },
-        });
+        if (!opts.reactivate) return;
+        await execute(
+          `UPDATE memberships SET planId = ?, expiresAt = ?, lastPaymentId = ?, revoked = 0, updatedAt = NOW()
+           WHERE id = ?`,
+          [planId, foreverExpiresAt, paymentId, existingMembership.id]
+        );
         return;
       }
+
+      const membershipId = uuid();
+      await execute(
+        `INSERT INTO memberships (id, channelId, fromAddress, planId, expiresAt, lastPaymentId)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [membershipId, channel.id, fromAddress, planId, foreverExpiresAt, paymentId]
+      );
+    };
+
+    const buildSuccessResponse = (params: {
+      payment: {
+        paymentId: string;
+        txHash: string;
+        from: string;
+        to: string;
+        value: string;
+        blockNumber?: number;
+      };
+      cached?: boolean;
+      nft?: { txHash: string; contractAddress: string; tokenId: string; amount: string };
+    }) => {
+      res.json({
+        ok: true,
+        cached: params.cached,
+        membership: { planId },
+        payment: params.payment,
+        nft: params.nft,
+      });
+    };
+
+    // If payment is already settled, avoid re-settling. Mint NFT (if needed) and return.
+    if (existing && existing.status === 'settled') {
+      const fromAddress = existing.fromAddress.toLowerCase();
+      const settleTxHash = existing.txHash;
+      if (!settleTxHash) {
+        res.status(500).json({ error: 'Payment record missing txHash for settled payment' });
+        return;
+      }
+
+      // Backfill context for older records (optional)
+      if (!existing.kind || !existing.membershipPlanId) {
+        await updatePaymentContext(paymentId, { kind: 'membership', membershipPlanId: planId });
+      }
+
+      if (useMembershipNft) {
+        const tokenId = getMembershipTokenId(slug).toString();
+        const contractAddress = membershipNftContract as string;
+
+        if (existing.nftTxHash) {
+          logger.info('Returning cached membership (already minted)', { paymentId });
+          await upsertMembership(fromAddress, { reactivate: false });
+          buildSuccessResponse({
+            cached: true,
+            payment: {
+              paymentId,
+              txHash: settleTxHash,
+              from: existing.fromAddress,
+              to: existing.toAddress,
+              value: existing.value,
+            },
+            nft: { txHash: existing.nftTxHash, contractAddress, tokenId, amount: '1' },
+          });
+          return;
+        }
+
+        // Retry minting if previous attempt failed after settlement.
+        try {
+          const mintResult = await mintMembershipNft({ network: channel.network, slug, toAddress: fromAddress, amount: 1n });
+          await markPaymentNftMinted(paymentId, mintResult.txHash);
+          await upsertMembership(fromAddress, { reactivate: false });
+
+          buildSuccessResponse({
+            payment: {
+              paymentId,
+              txHash: settleTxHash,
+              from: existing.fromAddress,
+              to: existing.toAddress,
+              value: existing.value,
+            },
+            nft: { txHash: mintResult.txHash, contractAddress, tokenId, amount: '1' },
+          });
+          return;
+        } catch (err) {
+          const message = (err as Error).message;
+          await markPaymentNftFailed(paymentId, message);
+          res.status(500).json({ error: 'Membership NFT mint failed', reason: message });
+          return;
+        }
+      }
+
+      // Legacy: settle already complete, just ensure membership is active and return.
+      await upsertMembership(fromAddress, { reactivate: false });
+      logger.info('Returning cached legacy membership (already settled)', { paymentId });
+      buildSuccessResponse({
+        cached: true,
+        payment: {
+          paymentId,
+          txHash: settleTxHash,
+          from: existing.fromAddress,
+          to: existing.toAddress,
+          value: existing.value,
+        },
+      });
+      return;
     }
 
     // Parse payment header
@@ -909,6 +1150,11 @@ router.post('/channels/:slug/memberships', async (req: Request, res: Response, n
     }
 
     const fromAddress = paymentHeader.payload.from.toLowerCase();
+    if (await isWalletBlocked(channel.id, fromAddress)) {
+      logger.warn('Blocked wallet attempted membership', { paymentId, fromAddress, planId });
+      res.status(403).json({ error: 'Your wallet has been blocked from this channel' });
+      return;
+    }
 
     // Create payment record (if new)
     if (!existing) {
@@ -937,45 +1183,22 @@ router.post('/channels/:slug/memberships', async (req: Request, res: Response, n
     // Mark as settled
     await markPaymentSettled(paymentId, settleResult);
 
-    // Upsert membership - extend expiresAt if already exists
-    const existingMembership = await queryOne<MembershipRow>(
-      'SELECT * FROM memberships WHERE channelId = ? AND fromAddress = ?',
-      [channel.id, fromAddress]
-    );
+    let nftInfo: { txHash: string; contractAddress: string; tokenId: string; amount: string } | undefined;
 
-    let expiresAt: Date;
-    const now = new Date();
-    const durationMs = plan.durationDays * 24 * 60 * 60 * 1000;
-
-    if (existingMembership && !existingMembership.revoked) {
-      // Extend from current expiresAt if still active
-      const currentExpires = new Date(existingMembership.expiresAt);
-      const baseDate = currentExpires > now ? currentExpires : now;
-      expiresAt = new Date(baseDate.getTime() + durationMs);
-
-      await execute(
-        `UPDATE memberships SET planId = ?, expiresAt = ?, lastPaymentId = ?, revoked = 0, updatedAt = NOW()
-         WHERE id = ?`,
-        [planId, expiresAt.toISOString().slice(0, 19).replace('T', ' '), paymentId, existingMembership.id]
-      );
-    } else if (existingMembership) {
-      // Was revoked, reactivate
-      expiresAt = new Date(now.getTime() + durationMs);
-      await execute(
-        `UPDATE memberships SET planId = ?, expiresAt = ?, lastPaymentId = ?, revoked = 0, updatedAt = NOW()
-         WHERE id = ?`,
-        [planId, expiresAt.toISOString().slice(0, 19).replace('T', ' '), paymentId, existingMembership.id]
-      );
-    } else {
-      // Create new membership
-      expiresAt = new Date(now.getTime() + durationMs);
-      const membershipId = uuid();
-      await execute(
-        `INSERT INTO memberships (id, channelId, fromAddress, planId, expiresAt, lastPaymentId)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [membershipId, channel.id, fromAddress, planId, expiresAt.toISOString().slice(0, 19).replace('T', ' '), paymentId]
-      );
+    if (useMembershipNft) {
+      try {
+        const mintResult = await mintMembershipNft({ network: channel.network, slug, toAddress: fromAddress, amount: 1n });
+        await markPaymentNftMinted(paymentId, mintResult.txHash);
+        nftInfo = { txHash: mintResult.txHash, contractAddress: membershipNftContract as string, tokenId: getMembershipTokenId(slug).toString(), amount: '1' };
+      } catch (err) {
+        const message = (err as Error).message;
+        await markPaymentNftFailed(paymentId, message);
+        res.status(500).json({ error: 'Membership NFT mint failed', reason: message });
+        return;
+      }
     }
+
+    await upsertMembership(fromAddress, { reactivate: true });
 
     // Emit unified support.alert
     emitSupportAlert(slug, {
@@ -992,16 +1215,11 @@ router.post('/channels/:slug/memberships', async (req: Request, res: Response, n
     await updateDonationGoalProgress(slug, channel.id, settleResult.value);
 
     // Update membership goal progress (count active members)
-    await updateMembershipGoalProgress(slug, channel.id);
+    await updateMembershipGoalProgress(slug, channel.id, channel.network);
 
-    logger.info('Membership created/renewed', { paymentId, fromAddress, planId, expiresAt: expiresAt.toISOString() });
+    logger.info('Membership created/renewed', { paymentId, fromAddress, planId, nft: Boolean(nftInfo) });
 
-    res.json({
-      ok: true,
-      membership: {
-        planId,
-        expiresAt: expiresAt.toISOString(),
-      },
+    buildSuccessResponse({
       payment: {
         paymentId,
         txHash: settleResult.txHash,
@@ -1010,6 +1228,7 @@ router.post('/channels/:slug/memberships', async (req: Request, res: Response, n
         value: settleResult.value,
         blockNumber: settleResult.blockNumber,
       },
+      nft: nftInfo,
     });
   } catch (err) {
     next(err);

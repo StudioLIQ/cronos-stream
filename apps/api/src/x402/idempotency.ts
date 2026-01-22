@@ -18,6 +18,8 @@ export interface StoredPayment {
   value: string;
   nonce: string;
   txHash: string | null;
+  nftTxHash: string | null;
+  nftError: string | null;
   blockNumber: number | null;
   timestamp: number | null;
   error: string | null;
@@ -144,6 +146,22 @@ export async function markPaymentFailed(paymentId: string, error: string): Promi
   );
 
   logger.warn('Marked payment as failed', { paymentId, error });
+}
+
+export async function markPaymentNftMinted(paymentId: string, nftTxHash: string): Promise<void> {
+  await execute(
+    `UPDATE payments SET nftTxHash = ?, nftError = NULL
+     WHERE paymentId = ?`,
+    [nftTxHash, paymentId]
+  );
+}
+
+export async function markPaymentNftFailed(paymentId: string, nftError: string): Promise<void> {
+  await execute(
+    `UPDATE payments SET nftError = ?
+     WHERE paymentId = ?`,
+    [nftError, paymentId]
+  );
 }
 
 export interface IdempotentPaymentResult {

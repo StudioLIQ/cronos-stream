@@ -7,6 +7,7 @@ import { getChannelBySlug } from './public.js';
 import { broadcastToOverlay, broadcastToDashboard, broadcastToAll } from '../sse/broker.js';
 import { getEffectiveDisplayName } from './profile.js';
 import { toYouTubeEmbedUrl } from '../lib/youtube.js';
+import { getMembershipNftContractAddress } from '../lib/membershipNft.js';
 
 const router = Router();
 
@@ -522,6 +523,8 @@ router.get('/channels/:slug/memberships', async (req, res, next) => {
       return;
     }
 
+    const membershipNftContract = getMembershipNftContractAddress(channel.network);
+
     // Build query
     const conditions: string[] = ['m.channelId = ?'];
     const params: (string | number)[] = [channel.id];
@@ -531,41 +534,58 @@ router.get('/channels/:slug/memberships', async (req, res, next) => {
       params.push(`%${search}%`);
     }
 
-    const now = nowUtcMysqlDatetime();
     if (status === 'active') {
-      conditions.push('m.revoked = 0 AND m.expiresAt > ?');
-      params.push(now);
+      conditions.push('m.revoked = 0');
+      if (membershipNftContract) {
+        conditions.push('mp.mintCount IS NOT NULL');
+      }
     } else if (status === 'expired') {
-      conditions.push('m.revoked = 0 AND m.expiresAt <= ?');
-      params.push(now);
+      // In NFT mode, "expired" is treated as "inactive" (no membership NFT minted yet).
+      if (membershipNftContract) {
+        conditions.push('m.revoked = 0 AND mp.mintCount IS NULL');
+      } else {
+        conditions.push('1 = 0');
+      }
     } else if (status === 'revoked') {
       conditions.push('m.revoked = 1');
     }
     // 'all' or undefined = no filter
 
+    interface MembershipListRow extends MembershipRow {
+      planName: string;
+      mintCount: number | null;
+      memberSince: string | null;
+    }
+
     const sql = `
-      SELECT m.*, p.name as planName
+      SELECT m.*, p.name as planName, mp.mintCount as mintCount, mp.memberSince as memberSince
       FROM memberships m
       JOIN membership_plans p ON m.planId = p.id
+      LEFT JOIN (
+        SELECT channelId, fromAddress, COUNT(*) as mintCount, MIN(createdAt) as memberSince
+        FROM payments
+        WHERE kind = 'membership' AND status = 'settled' AND nftTxHash IS NOT NULL
+        GROUP BY channelId, fromAddress
+      ) mp ON mp.channelId = m.channelId AND mp.fromAddress = m.fromAddress
       WHERE ${conditions.join(' AND ')}
-      ORDER BY m.expiresAt DESC
+      ORDER BY m.createdAt DESC
       LIMIT 100
     `;
 
-    const rows = await queryAll<MembershipRow>(sql, params);
+    const rows = await queryAll<MembershipListRow>(sql, params);
 
-    const nowDate = new Date();
     const result = rows.map((row) => {
-      const expiresAt = new Date(row.expiresAt);
-      const isActive = !row.revoked && expiresAt > nowDate;
+      const isRevoked = row.revoked === 1;
+      const hasNft = (row.mintCount || 0) > 0;
+      const isActive = !isRevoked && (membershipNftContract ? hasNft : true);
 
       return {
         id: row.id,
         fromAddress: row.fromAddress,
         planId: row.planId,
         planName: row.planName,
-        expiresAt: row.expiresAt,
-        revoked: row.revoked === 1,
+        memberSince: membershipNftContract ? row.memberSince : row.createdAt,
+        revoked: isRevoked,
         active: isActive,
         createdAt: row.createdAt,
       };
@@ -1004,6 +1024,7 @@ router.get('/channels/:slug/stats', async (req, res, next) => {
     }
 
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const membershipNftContract = getMembershipNftContractAddress(channel.network);
 
     // Total revenue (all settled payments)
     const revenueResult = await queryOne<{ total: string | null }>(
@@ -1021,12 +1042,27 @@ router.get('/channels/:slug/stats', async (req, res, next) => {
     );
     const totalSupporters = supportersResult?.count || 0;
 
-    // Active members
-    const membersResult = await queryOne<{ count: number }>(
-      `SELECT COUNT(*) as count FROM memberships
-       WHERE channelId = ? AND revoked = 0 AND expiresAt > ?`,
-      [channel.id, now]
-    );
+    // Active members (no expiry; in NFT mode require a minted membership receipt)
+    const membersResult = membershipNftContract
+      ? await queryOne<{ count: number }>(
+          `SELECT COUNT(*) as count
+           FROM memberships m
+           WHERE m.channelId = ? AND m.revoked = 0
+             AND EXISTS (
+               SELECT 1 FROM payments pay
+               WHERE pay.channelId = m.channelId
+                 AND pay.fromAddress = m.fromAddress
+                 AND pay.kind = 'membership'
+                 AND pay.status = 'settled'
+                 AND pay.nftTxHash IS NOT NULL
+             )`,
+          [channel.id]
+        )
+      : await queryOne<{ count: number }>(
+          `SELECT COUNT(*) as count FROM memberships
+           WHERE channelId = ? AND revoked = 0`,
+          [channel.id]
+        );
     const activeMembers = membersResult?.count || 0;
 
     // Queued Q&A items
@@ -1191,27 +1227,41 @@ router.get('/channels/:slug/export/members', async (req, res, next) => {
       return;
     }
 
-    const rows = await queryAll<MembershipRow & { planName: string }>(
-      `SELECT m.*, p.name as planName
+    const membershipNftContract = getMembershipNftContractAddress(channel.network);
+
+    interface ExportMemberRow extends MembershipRow {
+      planName: string;
+      mintCount: number | null;
+      memberSince: string | null;
+    }
+
+    const rows = await queryAll<ExportMemberRow>(
+      `SELECT m.*, p.name as planName, mp.mintCount as mintCount, mp.memberSince as memberSince
        FROM memberships m
        JOIN membership_plans p ON m.planId = p.id
+       LEFT JOIN (
+         SELECT channelId, fromAddress, COUNT(*) as mintCount, MIN(createdAt) as memberSince
+         FROM payments
+         WHERE kind = 'membership' AND status = 'settled' AND nftTxHash IS NOT NULL
+         GROUP BY channelId, fromAddress
+       ) mp ON mp.channelId = m.channelId AND mp.fromAddress = m.fromAddress
        WHERE m.channelId = ?
        ORDER BY m.createdAt DESC`,
       [channel.id]
     );
 
-    const now = new Date();
     const items = rows.map((row) => {
-      const expiresAt = new Date(row.expiresAt);
-      const isActive = !row.revoked && expiresAt > now;
+      const isRevoked = row.revoked === 1;
+      const hasNft = (row.mintCount || 0) > 0;
+      const isActive = !isRevoked && (membershipNftContract ? hasNft : true);
 
       return {
         id: row.id,
         fromAddress: row.fromAddress,
         planId: row.planId,
         planName: row.planName,
-        expiresAt: row.expiresAt,
-        revoked: row.revoked === 1,
+        memberSince: membershipNftContract ? row.memberSince : row.createdAt,
+        revoked: isRevoked,
         active: isActive,
         createdAt: row.createdAt,
       };
