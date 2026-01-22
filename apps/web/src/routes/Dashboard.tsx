@@ -1,2237 +1,242 @@
-import { useEffect, useState, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
-import { connectSSE } from '../lib/sse';
-import { QaItemSkeleton, LeaderboardItemSkeleton, MemberItemSkeleton, GoalItemSkeleton } from '../components/Skeleton';
-import { EmptyState } from '../components/EmptyState';
-import { ShareLinks } from '../components/ShareLinks';
-import { generateCsv, downloadCsv, formatTimestamp, formatDatetime } from '../lib/csv';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { TopNav } from '../components/TopNav';
+import { useToasts } from '../components/Toast';
+import { EmptyState } from '../components/EmptyState';
 import { API_BASE } from '../lib/config';
 import { copyToClipboard } from '../lib/clipboard';
+import { formatUsdcAmount } from '../lib/x402';
 
-interface QaItem {
-  id: string;
-  fromAddress: string;
-  displayName: string | null;
-  message: string;
-  tier: string;
-  priceBaseUnits: string;
-  status: string;
-  isMember: boolean;
-  memberPlanId: string | null;
-  createdAt: string;
-  shownAt: string | null;
-  closedAt: string | null;
-}
-
-interface QaCopilotAssist {
-  summary: string;
-  answer: string;
-  followUps: string[];
-  tags: string[];
-  provider: string;
-}
-
-interface StreamRecap {
-  title: string;
-  markdown: string;
-  tweet: string;
-  tags: string[];
-  provider: string;
-}
-
-interface StreamRecapStats {
-  totalRevenueBaseUnits: string;
-  supportCount: number;
-  uniqueSupporters: number;
-  kindCounts: Record<string, number>;
-  kindTotalsBaseUnits: Record<string, string>;
-  newMembers: number;
-}
-
-interface QaCreatedEvent {
-  qaId: string;
-  tier: string;
-  message: string;
-  displayName: string | null;
-  amount: string;
-  from: string;
-  txHash: string;
-  createdAt: number;
-  isMember: boolean;
-  memberPlanId: string | null;
-}
-
-interface QaUpdatedEvent {
-  qaId: string;
-  status: string;
-}
-
-interface SupportAlertEvent {
-  kind: 'effect' | 'qa' | 'donation' | 'membership';
-  paymentId: string;
-  value: string;
-  fromAddress: string;
-  displayName?: string | null;
-  txHash: string;
-  timestamp: number;
-  actionKey?: string;
-  qaId?: string;
-  membershipPlanId?: string;
-}
-
-interface PaymentReceipt {
-  paymentId: string;
-  status: string;
-  kind: string | null;
-  scheme: string;
+type ChannelOverview = {
+  slug: string;
+  displayName: string;
+  payToAddress: string;
   network: string;
-  asset: string;
-  fromAddress: string;
-  toAddress: string;
-  value: string;
-  nonce: string;
-  txHash: string | null;
-  blockNumber: string | null;
-  timestamp: number | null;
-  actionKey: string | null;
-  qaId: string | null;
-  membershipPlanId: string | null;
-  createdAt: string;
+  chainId: number | null;
+  usdcAddress: string | null;
+  totalSettledValueBaseUnits: string;
+  settledCount: number;
+  lastSettledAt: number | null;
+  usdcBalanceBaseUnits: string | null;
+  usdcBalanceError: string | null;
+};
+
+type DashboardOverviewResponse = {
+  generatedAt: number;
+  channels: ChannelOverview[];
+};
+
+function safeBigInt(value: string | null | undefined): bigint {
+  try {
+    return BigInt(value || '0');
+  } catch {
+    return 0n;
+  }
 }
 
-interface SupportItem {
-  paymentId: string;
-  kind: string | null;
-  value: string;
-  txHash: string | null;
-  timestamp: number | null;
-  actionKey: string | null;
-  qaId: string | null;
-  displayName: string | null;
+function formatAddress(address: string): string {
+  if (!address) return '—';
+  if (address.length <= 12) return address;
+  return `${address.slice(0, 6)}…${address.slice(-4)}`;
 }
 
-interface LeaderboardEntry {
-  fromAddress: string;
-  totalValueBaseUnits: string;
-  supportCount: number;
-  lastSupportedAt: number | null;
-  displayName: string | null;
-}
-
-interface MemberItem {
-  id: string;
-  fromAddress: string;
-  planId: string;
-  planName: string;
-  memberSince: string | null;
-  revoked: boolean;
-  active: boolean;
-  createdAt: string;
-}
-
-interface GoalItem {
-  id: string;
-  type: 'donation' | 'membership';
-  name: string;
-  targetValue: string;
-  currentValue: string;
-  startsAt: string | null;
-  endsAt: string | null;
-  enabled: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
-
-function formatUSDC(baseUnits: string): string {
-  const num = BigInt(baseUnits);
-  const whole = num / BigInt(1000000);
-  const frac = num % BigInt(1000000);
-  const fracStr = frac.toString().padStart(6, '0').replace(/0+$/, '');
-  return fracStr ? `${whole}.${fracStr}` : whole.toString();
+function formatUnixSeconds(ts: number | null): string {
+  if (!ts) return '—';
+  const date = new Date(ts * 1000);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleString();
 }
 
 export default function Dashboard() {
-  const { slug } = useParams<{ slug: string }>();
-  const [token, setToken] = useState(() => localStorage.getItem('dashboard_token') || '');
-  const [authenticated, setAuthenticated] = useState(false);
-  const [items, setItems] = useState<QaItem[]>([]);
+  const { addToast } = useToasts();
+  const [data, setData] = useState<DashboardOverviewResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<'queued' | 'showing' | 'answered' | 'skipped' | 'blocked'>('queued');
-  const [qaAssistById, setQaAssistById] = useState<Record<string, QaCopilotAssist>>({});
-  const [qaAssistErrorById, setQaAssistErrorById] = useState<Record<string, string>>({});
-  const [qaAssistLoadingId, setQaAssistLoadingId] = useState<string | null>(null);
-  const [qaAssistCopiedId, setQaAssistCopiedId] = useState<string | null>(null);
+  const [autoRefresh, setAutoRefresh] = useState(true);
 
-  // Stream config state
-  const [streamEmbedInput, setStreamEmbedInput] = useState('');
-  const [streamEmbedCurrent, setStreamEmbedCurrent] = useState<string | null>(null);
-  const [streamEmbedSaving, setStreamEmbedSaving] = useState(false);
-  const [streamEmbedError, setStreamEmbedError] = useState<string | null>(null);
-
-  // Tab state
-  const [activeTab, setActiveTab] = useState<'qa' | 'supports' | 'members' | 'goals' | 'recap'>('qa');
-
-  // Supports state
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
-  const [leaderboardPeriod, setLeaderboardPeriod] = useState<'all' | '30d' | '7d' | '24h'>('all');
-  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
-  const [walletLookup, setWalletLookup] = useState('');
-  const [walletSupports, setWalletSupports] = useState<SupportItem[]>([]);
-  const [walletSupportsLoading, setWalletSupportsLoading] = useState(false);
-
-  // Members state
-  const [members, setMembers] = useState<MemberItem[]>([]);
-  const [membersLoading, setMembersLoading] = useState(false);
-  const [memberFilter, setMemberFilter] = useState<'all' | 'active' | 'expired' | 'revoked'>('active');
-  const [memberSearch, setMemberSearch] = useState('');
-
-  // Demo reset state
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
-  const [resetLoading, setResetLoading] = useState(false);
-
-  // Goals state
-  const [goals, setGoals] = useState<GoalItem[]>([]);
-  const [goalsLoading, setGoalsLoading] = useState(false);
-  const [showGoalForm, setShowGoalForm] = useState(false);
-  const [newGoal, setNewGoal] = useState({ type: 'donation' as 'donation' | 'membership', name: '', targetValue: '' });
-
-  // Recap state
-  const [recapPreset, setRecapPreset] = useState<'today' | '24h' | '7d'>('today');
-  const [recapLoading, setRecapLoading] = useState(false);
-  const [recapError, setRecapError] = useState<string | null>(null);
-  const [recapResult, setRecapResult] = useState<StreamRecap | null>(null);
-  const [recapStats, setRecapStats] = useState<StreamRecapStats | null>(null);
-  const [recapWindow, setRecapWindow] = useState<{ from: string; to: string } | null>(null);
-  const [recapCopied, setRecapCopied] = useState<'markdown' | 'tweet' | null>(null);
-
-  // Stats state
-  const [stats, setStats] = useState<{
-    totalRevenue: string;
-    todayRevenue: string;
-    totalSupporters: number;
-    activeMembers: number;
-    queuedQA: number;
-    totalTransactions: number;
-  } | null>(null);
-
-  // Recent support alerts (for toast)
-  const [recentAlerts, setRecentAlerts] = useState<SupportAlertEvent[]>([]);
-
-  // Receipt state for wallet lookup
-  const [expandedReceipt, setExpandedReceipt] = useState<string | null>(null);
-  const [receiptData, setReceiptData] = useState<PaymentReceipt | null>(null);
-  const [receiptLoading, setReceiptLoading] = useState(false);
-  const [receiptError, setReceiptError] = useState<string | null>(null);
-
-  const fetchItems = useCallback(async () => {
-    if (!slug || !token) return;
+  const fetchOverview = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const res = await fetch(`${API_BASE}/channels/${slug}/qa?status=${filter}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (res.status === 401 || res.status === 403) {
-        setAuthenticated(false);
-        setError('Invalid token');
-        return;
-      }
-
+      const res = await fetch(`${API_BASE}/dashboard/overview`);
       if (!res.ok) {
-        throw new Error('Failed to fetch Q&A items');
+        throw new Error(`Failed to load dashboard overview (${res.status})`);
       }
-
-      const data = await res.json();
-      setItems(data);
-      setAuthenticated(true);
+      const json = (await res.json()) as DashboardOverviewResponse;
+      setData(json);
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setLoading(false);
     }
-  }, [slug, token, filter]);
-
-  const fetchLeaderboard = useCallback(async () => {
-    if (!slug || !token) return;
-    setLeaderboardLoading(true);
-
-    try {
-      const res = await fetch(`${API_BASE}/channels/${slug}/leaderboard?period=${leaderboardPeriod}&limit=20`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!res.ok) {
-        throw new Error('Failed to fetch leaderboard');
-      }
-
-      const data = await res.json();
-      setLeaderboard(data.items);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLeaderboardLoading(false);
-    }
-  }, [slug, token, leaderboardPeriod]);
-
-  const fetchWalletSupports = useCallback(async (address: string) => {
-    if (!slug || !token || !address) return;
-    setWalletSupportsLoading(true);
-
-    try {
-      const res = await fetch(`${API_BASE}/channels/${slug}/supports?from=${address.toLowerCase()}&limit=50`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!res.ok) {
-        throw new Error('Failed to fetch wallet supports');
-      }
-
-      const data = await res.json();
-      setWalletSupports(data.items);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setWalletSupportsLoading(false);
-    }
-  }, [slug, token]);
-
-  const fetchMembers = useCallback(async () => {
-    if (!slug || !token) return;
-    setMembersLoading(true);
-
-    try {
-      const params = new URLSearchParams();
-      if (memberFilter !== 'all') params.set('status', memberFilter);
-      if (memberSearch) params.set('search', memberSearch);
-
-      const res = await fetch(`${API_BASE}/channels/${slug}/memberships?${params.toString()}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!res.ok) {
-        throw new Error('Failed to fetch members');
-      }
-
-      const data = await res.json();
-      setMembers(data.items);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setMembersLoading(false);
-    }
-  }, [slug, token, memberFilter, memberSearch]);
-
-  const revokeMember = async (address: string) => {
-    if (!slug || !token) return;
-
-    try {
-      const res = await fetch(`${API_BASE}/channels/${slug}/memberships/${address}/revoke`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to revoke membership');
-      }
-
-      // Refresh members list
-      fetchMembers();
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  };
-
-  const fetchGoals = useCallback(async () => {
-    if (!slug || !token) return;
-    setGoalsLoading(true);
-
-    try {
-      const res = await fetch(`${API_BASE}/channels/${slug}/goals`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!res.ok) {
-        throw new Error('Failed to fetch goals');
-      }
-
-      const data = await res.json();
-      setGoals(data.items);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setGoalsLoading(false);
-    }
-  }, [slug, token]);
-
-  const fetchStats = useCallback(async () => {
-    if (!slug || !token) return;
-
-    try {
-      const res = await fetch(`${API_BASE}/channels/${slug}/stats`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!res.ok) {
-        throw new Error('Failed to fetch stats');
-      }
-
-      const data = await res.json();
-      setStats(data);
-    } catch (err) {
-      // Ignore errors for stats
-    }
-  }, [slug, token]);
-
-  const createGoal = async () => {
-    if (!slug || !token) return;
-
-    // Validate inputs
-    if (!newGoal.name.trim()) {
-      setError('Goal name is required');
-      return;
-    }
-
-    // For donation goals, convert USDC amount to base units
-    let targetValue = newGoal.targetValue;
-    if (newGoal.type === 'donation') {
-      const parsed = parseFloat(newGoal.targetValue);
-      if (isNaN(parsed) || parsed <= 0) {
-        setError('Target value must be a positive number');
-        return;
-      }
-      targetValue = Math.round(parsed * 1000000).toString();
-    } else {
-      const parsed = parseInt(newGoal.targetValue, 10);
-      if (isNaN(parsed) || parsed <= 0) {
-        setError('Target value must be a positive integer');
-        return;
-      }
-      targetValue = parsed.toString();
-    }
-
-    try {
-      const res = await fetch(`${API_BASE}/channels/${slug}/goals`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          type: newGoal.type,
-          name: newGoal.name.trim(),
-          targetValue,
-        }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to create goal');
-      }
-
-      setShowGoalForm(false);
-      setNewGoal({ type: 'donation', name: '', targetValue: '' });
-      fetchGoals();
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  };
-
-  const deleteGoal = async (goalId: string) => {
-    if (!slug || !token) return;
-
-    try {
-      const res = await fetch(`${API_BASE}/channels/${slug}/goals/${goalId}`, {
-        method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to delete goal');
-      }
-
-      fetchGoals();
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  };
-
-  const resetGoal = async (goalId: string) => {
-    if (!slug || !token) return;
-
-    try {
-      const res = await fetch(`${API_BASE}/channels/${slug}/goals/${goalId}/reset`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to reset goal');
-      }
-
-      fetchGoals();
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  };
-
-  const toggleGoalEnabled = async (goalId: string, enabled: boolean) => {
-    if (!slug || !token) return;
-
-    try {
-      const res = await fetch(`${API_BASE}/channels/${slug}/goals/${goalId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ enabled }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to update goal');
-      }
-
-      fetchGoals();
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  };
-
-  const exportSupports = async () => {
-    if (!slug || !token) return;
-
-    try {
-      const res = await fetch(`${API_BASE}/channels/${slug}/export/supports`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to export supports');
-      }
-
-      const data = await res.json();
-      const csv = generateCsv(
-        data.items.map((item: { paymentId: string; fromAddress: string; displayName: string | null; value: string; kind: string | null; actionKey: string | null; qaId: string | null; txHash: string | null; timestamp: number | null; createdAt: string }) => ({
-          paymentId: item.paymentId,
-          fromAddress: item.fromAddress,
-          displayName: item.displayName || '',
-          valueUSDC: (Number(BigInt(item.value)) / 1000000).toFixed(6),
-          valueBaseUnits: item.value,
-          kind: item.kind || '',
-          actionKey: item.actionKey || '',
-          txHash: item.txHash || '',
-          timestamp: formatTimestamp(item.timestamp),
-          createdAt: formatDatetime(item.createdAt),
-        })),
-        [
-          { key: 'paymentId', header: 'Payment ID' },
-          { key: 'fromAddress', header: 'Wallet Address' },
-          { key: 'displayName', header: 'Display Name' },
-          { key: 'valueUSDC', header: 'Amount (USDC)' },
-          { key: 'valueBaseUnits', header: 'Amount (Base Units)' },
-          { key: 'kind', header: 'Type' },
-          { key: 'actionKey', header: 'Action Key' },
-          { key: 'txHash', header: 'Transaction Hash' },
-          { key: 'timestamp', header: 'Timestamp' },
-          { key: 'createdAt', header: 'Created At' },
-        ]
-      );
-
-      downloadCsv(csv, `supports-${slug}-${new Date().toISOString().slice(0, 10)}.csv`);
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  };
-
-  const exportMembers = async () => {
-    if (!slug || !token) return;
-
-    try {
-      const res = await fetch(`${API_BASE}/channels/${slug}/export/members`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to export members');
-      }
-
-      const data = await res.json();
-      const csv = generateCsv(
-        data.items.map((item: {
-          id: string;
-          fromAddress: string;
-          displayName: string | null;
-          planId: string;
-          planName: string;
-          memberSince: string | null;
-          revoked: boolean;
-          active: boolean;
-          createdAt: string;
-        }) => ({
-          id: item.id,
-          fromAddress: item.fromAddress,
-          displayName: item.displayName || '',
-          planName: item.planName,
-          status: item.active ? 'Active' : item.revoked ? 'Revoked' : 'Inactive',
-          memberSince: item.memberSince ? formatDatetime(item.memberSince) : '',
-          createdAt: formatDatetime(item.createdAt),
-        })),
-        [
-          { key: 'id', header: 'Membership ID' },
-          { key: 'fromAddress', header: 'Wallet Address' },
-          { key: 'displayName', header: 'Display Name' },
-          { key: 'planName', header: 'Plan' },
-          { key: 'status', header: 'Status' },
-          { key: 'memberSince', header: 'Member Since' },
-          { key: 'createdAt', header: 'Created At' },
-        ]
-      );
-
-      downloadCsv(csv, `members-${slug}-${new Date().toISOString().slice(0, 10)}.csv`);
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  };
+  }, []);
 
   useEffect(() => {
-    if (authenticated && activeTab === 'qa') {
-      fetchItems();
-    }
-  }, [fetchItems, authenticated, filter, activeTab]);
+    fetchOverview();
+  }, [fetchOverview]);
 
   useEffect(() => {
-    if (authenticated && activeTab === 'supports') {
-      fetchLeaderboard();
-    }
-  }, [fetchLeaderboard, authenticated, leaderboardPeriod, activeTab]);
+    if (!autoRefresh) return;
+    const id = window.setInterval(fetchOverview, 15_000);
+    return () => window.clearInterval(id);
+  }, [autoRefresh, fetchOverview]);
 
-  useEffect(() => {
-    if (authenticated && activeTab === 'members') {
-      fetchMembers();
-    }
-  }, [fetchMembers, authenticated, memberFilter, activeTab]);
+  const totals = useMemo(() => {
+    if (!data) return null;
+    const totalReceived = data.channels.reduce((acc, ch) => acc + safeBigInt(ch.totalSettledValueBaseUnits), 0n);
+    const totalBalanceKnown = data.channels.reduce((acc, ch) => acc + safeBigInt(ch.usdcBalanceBaseUnits), 0n);
+    const balanceKnownCount = data.channels.filter((ch) => !!ch.usdcBalanceBaseUnits).length;
+    return { totalReceived, totalBalanceKnown, balanceKnownCount };
+  }, [data]);
 
-  useEffect(() => {
-    if (authenticated && activeTab === 'goals') {
-      fetchGoals();
-    }
-  }, [fetchGoals, authenticated, activeTab]);
+  const generatedAt = data?.generatedAt ? new Date(data.generatedAt).toLocaleString() : null;
 
-  // Fetch stats on authentication
-  useEffect(() => {
-    if (authenticated) {
-      fetchStats();
-    }
-  }, [fetchStats, authenticated]);
-
-  useEffect(() => {
-    if (!slug || !authenticated) return;
-
-    const eventSource = connectSSE(`${API_BASE}/channels/${slug}/stream/dashboard`, (eventName, data) => {
-      if (eventName === 'qa.created' && filter === 'queued') {
-        const event = data as QaCreatedEvent;
-        setItems((prev) => [
-          ...prev,
-          {
-            id: event.qaId,
-            fromAddress: event.from,
-            displayName: event.displayName,
-            message: event.message,
-            tier: event.tier,
-            priceBaseUnits: event.amount,
-            status: 'queued',
-            isMember: event.isMember || false,
-            memberPlanId: event.memberPlanId || null,
-            createdAt: new Date(event.createdAt).toISOString(),
-            shownAt: null,
-            closedAt: null,
-          },
-        ]);
-      } else if (eventName === 'qa.updated') {
-        const event = data as QaUpdatedEvent;
-        setItems((prev) =>
-          prev.map((item) =>
-            item.id === event.qaId ? { ...item, status: event.status } : item
-          ).filter((item) => item.status === filter)
-        );
-      } else if (eventName === 'support.alert') {
-        const event = data as SupportAlertEvent;
-        // Add to recent alerts (for toast display)
-        setRecentAlerts((prev) => [event, ...prev.slice(0, 4)]);
-        // Auto-clear alert after 5 seconds
-        setTimeout(() => {
-          setRecentAlerts((prev) => prev.filter((a) => a.paymentId !== event.paymentId));
-        }, 5000);
-        // Refresh stats and leaderboard
-        fetchStats();
-        if (activeTab === 'supports') {
-          fetchLeaderboard();
-        }
-      }
-    });
-
-    return () => {
-      eventSource.close();
-    };
-  }, [slug, authenticated, filter]);
-
-  // Fetch channel config (stream embed URL)
-  useEffect(() => {
-    if (!slug || !authenticated) return;
-
-    setStreamEmbedError(null);
-    fetch(`${API_BASE}/channels/${slug}`)
-      .then(async (res) => {
-        if (!res.ok) throw new Error('Failed to fetch channel');
-        const data = await res.json();
-        const current = (data?.streamEmbedUrl ?? null) as string | null;
-        setStreamEmbedCurrent(current);
-        setStreamEmbedInput(current || '');
-      })
-      .catch(() => {
-        // Best-effort; keep dashboard usable even if this fails.
-      });
-  }, [slug, authenticated]);
-
-  const handleAuth = () => {
-    localStorage.setItem('dashboard_token', token);
-    setAuthenticated(true);
+  const handleCopyAddress = async (address: string) => {
+    const ok = await copyToClipboard(address);
+    addToast(ok ? 'Copied wallet address' : 'Failed to copy wallet address', ok ? 'success' : 'error');
   };
-
-  const updateStreamEmbedUrl = async (value: string | null) => {
-    if (!slug) return;
-    setStreamEmbedSaving(true);
-    setStreamEmbedError(null);
-
-    try {
-      const res = await fetch(`${API_BASE}/channels/${slug}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ streamEmbedUrl: value }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to update stream URL');
-      }
-
-      setStreamEmbedCurrent(data.streamEmbedUrl || null);
-    } catch (err) {
-      setStreamEmbedError((err as Error).message);
-    } finally {
-      setStreamEmbedSaving(false);
-    }
-  };
-
-  const saveStreamEmbedUrl = async () => {
-    const value = streamEmbedInput.trim();
-    await updateStreamEmbedUrl(value ? value : null);
-  };
-
-  const clearStreamEmbedUrl = async () => {
-    setStreamEmbedInput('');
-    await updateStreamEmbedUrl(null);
-  };
-
-  const handleDemoReset = async () => {
-    if (slug !== 'demo') return;
-    setResetLoading(true);
-    setError(null);
-
-    try {
-      const res = await fetch(`${API_BASE}/channels/${slug}/demo/reset`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to reset demo data');
-      }
-
-      // Refresh the Q&A list
-      await fetchItems();
-      setShowResetConfirm(false);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setResetLoading(false);
-    }
-  };
-
-  const handleWalletLookup = () => {
-    if (walletLookup && /^0x[a-fA-F0-9]{40}$/.test(walletLookup)) {
-      fetchWalletSupports(walletLookup);
-    }
-  };
-
-  const handleViewReceipt = async (paymentId: string) => {
-    if (!slug || !token) return;
-
-    // Toggle off if already expanded
-    if (expandedReceipt === paymentId) {
-      setExpandedReceipt(null);
-      setReceiptData(null);
-      return;
-    }
-
-    setExpandedReceipt(paymentId);
-    setReceiptLoading(true);
-    setReceiptError(null);
-    setReceiptData(null);
-
-    try {
-      const res = await fetch(`${API_BASE}/channels/${slug}/payments/${paymentId}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to fetch receipt');
-      }
-      const data = await res.json();
-      setReceiptData(data);
-    } catch (err) {
-      setReceiptError((err as Error).message);
-    } finally {
-      setReceiptLoading(false);
-    }
-  };
-
-  const handleLeaderboardClick = (address: string) => {
-    setWalletLookup(address);
-    fetchWalletSupports(address);
-  };
-
-  const handleAction = async (qaId: string, state: string) => {
-    try {
-      const res = await fetch(`${API_BASE}/channels/${slug}/qa/${qaId}/state`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ state }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to update state');
-      }
-
-      // Remove from current list immediately
-      setItems((prev) => prev.filter((item) => item.id !== qaId));
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  };
-
-  const handleQaAssist = async (qaId: string) => {
-    if (!slug || !token) return;
-    setQaAssistLoadingId(qaId);
-    setQaAssistErrorById((prev) => {
-      const next = { ...prev };
-      delete next[qaId];
-      return next;
-    });
-
-    try {
-      const res = await fetch(`${API_BASE}/channels/${slug}/qa/${qaId}/assist`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to get AI assist');
-      }
-
-      setQaAssistById((prev) => ({ ...prev, [qaId]: data.assist as QaCopilotAssist }));
-    } catch (err) {
-      setQaAssistErrorById((prev) => ({ ...prev, [qaId]: (err as Error).message }));
-    } finally {
-      setQaAssistLoadingId(null);
-    }
-  };
-
-  const handleCopyAssistAnswer = async (qaId: string) => {
-    const assist = qaAssistById[qaId];
-    if (!assist) return;
-    const ok = await copyToClipboard(assist.answer);
-    if (ok) {
-      setQaAssistCopiedId(qaId);
-      window.setTimeout(() => setQaAssistCopiedId(null), 1000);
-    }
-  };
-
-  const handleGenerateRecap = async () => {
-    if (!slug || !token) return;
-    setRecapLoading(true);
-    setRecapError(null);
-    setRecapCopied(null);
-
-    try {
-      const now = new Date();
-      let from: Date;
-
-      if (recapPreset === 'today') {
-        from = new Date(now);
-        from.setHours(0, 0, 0, 0);
-      } else if (recapPreset === '7d') {
-        from = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      } else {
-        from = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      }
-
-      const res = await fetch(`${API_BASE}/channels/${slug}/recap`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ preset: recapPreset, from: from.toISOString(), to: now.toISOString() }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        const msg = data?.reason ? `${data.error}: ${data.reason}` : data.error || 'Failed to generate recap';
-        throw new Error(msg);
-      }
-
-      setRecapResult(data.recap as StreamRecap);
-      setRecapStats(data.stats as StreamRecapStats);
-      setRecapWindow({ from: data.window?.from, to: data.window?.to });
-    } catch (err) {
-      setRecapError((err as Error).message);
-    } finally {
-      setRecapLoading(false);
-    }
-  };
-
-  const handleCopyRecap = async (kind: 'markdown' | 'tweet') => {
-    if (!recapResult) return;
-    const text = kind === 'tweet' ? recapResult.tweet : recapResult.markdown;
-    const ok = await copyToClipboard(text);
-    if (ok) {
-      setRecapCopied(kind);
-      window.setTimeout(() => setRecapCopied(null), 1000);
-    }
-  };
-
-  if (!authenticated) {
-    return (
-      <div>
-        <TopNav />
-        <div className="container">
-          <h1>Dashboard - {slug}</h1>
-          <div className="card" style={{ marginTop: '24px' }}>
-            <h2>Authentication Required</h2>
-            <div style={{ marginTop: '16px' }}>
-              <input
-                type="password"
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                placeholder="Enter dashboard token"
-                style={{ width: '100%', marginBottom: '12px' }}
-              />
-              <button
-                onClick={handleAuth}
-                style={{ background: 'var(--primary)', color: 'var(--primary-text)', width: '100%' }}
-              >
-                Authenticate
-              </button>
-            </div>
-            {error && <p style={{ marginTop: '12px', color: 'var(--danger)' }}>{error}</p>}
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
-    <div>
+    <>
       <TopNav />
-      <div className="container">
-      <header style={{ marginBottom: '24px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h1>Dashboard - {slug}</h1>
-          {slug === 'demo' && (
+      <main className="container" style={{ paddingTop: '20px', paddingBottom: '48px' }}>
+        <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+          <div>
+            <h1 style={{ fontSize: '22px', fontWeight: 800, margin: 0 }}>Dashboard</h1>
+            <div style={{ marginTop: '6px', color: 'var(--muted)', fontSize: '13px' }}>
+              All streamers: total received + current USDC balance
+              {generatedAt ? ` · updated ${generatedAt}` : ''}
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--muted)', fontSize: '13px' }}>
+              <input
+                type="checkbox"
+                checked={autoRefresh}
+                onChange={(e) => setAutoRefresh(e.target.checked)}
+              />
+              Auto refresh (15s)
+            </label>
             <button
-              onClick={() => setShowResetConfirm(true)}
-              style={{
-                background: 'var(--danger)',
-                color: '#fff',
-                border: 'none',
-                padding: '8px 16px',
-                borderRadius: '6px',
-                fontSize: '14px',
-                cursor: 'pointer',
-              }}
+              onClick={fetchOverview}
+              disabled={loading}
+              style={{ background: 'var(--primary)', color: 'var(--primary-text)' }}
             >
-              Reset Demo Data
+              {loading ? 'Refreshing…' : 'Refresh'}
             </button>
-          )}
+          </div>
         </div>
-        {/* Tab navigation */}
-        <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
-          <button
-            onClick={() => setActiveTab('qa')}
-            style={{
-              background: activeTab === 'qa' ? 'var(--primary)' : 'var(--panel-2)',
-              color: activeTab === 'qa' ? 'var(--primary-text)' : 'var(--text)',
-              border: '1px solid var(--border)',
-              padding: '8px 16px',
-            }}
-          >
-            Q&A Queue
-          </button>
-          <button
-            onClick={() => setActiveTab('supports')}
-            style={{
-              background: activeTab === 'supports' ? 'var(--primary)' : 'var(--panel-2)',
-              color: activeTab === 'supports' ? 'var(--primary-text)' : 'var(--text)',
-              border: '1px solid var(--border)',
-              padding: '8px 16px',
-            }}
-          >
-            Supports
-          </button>
-          <button
-            onClick={() => setActiveTab('members')}
-            style={{
-              background: activeTab === 'members' ? 'var(--primary)' : 'var(--panel-2)',
-              color: activeTab === 'members' ? 'var(--primary-text)' : 'var(--text)',
-              border: '1px solid var(--border)',
-              padding: '8px 16px',
-            }}
-          >
-            Members
-          </button>
-          <button
-            onClick={() => setActiveTab('goals')}
-            style={{
-              background: activeTab === 'goals' ? 'var(--primary)' : 'var(--panel-2)',
-              color: activeTab === 'goals' ? 'var(--primary-text)' : 'var(--text)',
-              border: '1px solid var(--border)',
-              padding: '8px 16px',
-            }}
-          >
-            Goals
-          </button>
-          <button
-            onClick={() => setActiveTab('recap')}
-            style={{
-              background: activeTab === 'recap' ? 'var(--primary)' : 'var(--panel-2)',
-              color: activeTab === 'recap' ? 'var(--primary-text)' : 'var(--text)',
-              border: '1px solid var(--border)',
-              padding: '8px 16px',
-            }}
-          >
-            Recap
-          </button>
-        </div>
-        {activeTab === 'qa' && (
-          <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
-            {(['queued', 'showing', 'answered', 'skipped', 'blocked'] as const).map((status) => (
-              <button
-                key={status}
-                onClick={() => setFilter(status)}
-                style={{
-                  background: filter === status ? 'var(--primary)' : 'var(--panel-2)',
-                  color: filter === status ? 'var(--primary-text)' : 'var(--text)',
-                  border: '1px solid var(--border)',
-                  fontSize: '14px',
-                }}
-              >
-                {status.charAt(0).toUpperCase() + status.slice(1)}
-              </button>
-            ))}
+
+        {error && (
+          <div className="card" style={{ borderColor: 'rgba(255, 92, 92, 0.35)' }}>
+            <div style={{ color: 'var(--danger)', fontWeight: 700 }}>Failed to load</div>
+            <div style={{ marginTop: '6px', color: 'var(--muted)', fontSize: '13px' }}>{error}</div>
           </div>
         )}
-      </header>
 
-      {error && (
-        <div className="card" style={{ background: 'var(--danger)', color: '#fff', marginBottom: '16px' }}>
-          <p style={{ color: '#fff' }}>{error}</p>
-          <button onClick={() => setError(null)} style={{ marginTop: '8px', background: '#fff', color: '#000' }}>
-            Dismiss
-          </button>
-        </div>
-      )}
-
-      {/* Recent Support Alerts */}
-      {recentAlerts.length > 0 && (
-        <div style={{ marginBottom: '16px' }}>
-          {recentAlerts.map((alert) => (
-            <div
-              key={alert.paymentId}
-              style={{
-                padding: '12px 16px',
-                marginBottom: '8px',
-                background: alert.kind === 'donation' ? 'linear-gradient(90deg, #f2da00, #00f889)' : 'var(--accent)',
-                borderRadius: '8px',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                animation: 'slideIn 0.3s ease-out',
-              }}
-            >
-              <div>
-                <span style={{ fontWeight: 'bold', color: 'var(--primary-text)' }}>
-                  New {alert.kind}!
-                </span>
-                <span style={{ marginLeft: '8px', color: 'var(--primary-text)' }}>
-                  {alert.displayName || `${alert.fromAddress.slice(0, 6)}...${alert.fromAddress.slice(-4)}`}
-                </span>
-              </div>
-              <span style={{ fontWeight: 'bold', color: 'var(--primary-text)' }}>
-                ${formatUSDC(alert.value)}
-              </span>
+        {totals && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', marginBottom: '16px' }}>
+            <div className="card" style={{ marginBottom: 0 }}>
+              <div style={{ color: 'var(--muted)', fontSize: '12px' }}>Total received (all channels)</div>
+              <div style={{ fontSize: '22px', fontWeight: 800, marginTop: '6px' }}>${formatUsdcAmount(totals.totalReceived.toString())}</div>
             </div>
-          ))}
-        </div>
-      )}
-
-      {/* Share Links */}
-      {slug && <ShareLinks slug={slug} />}
-
-      {/* Stream Settings */}
-      {slug && (
-        <div className="card" style={{ marginBottom: '16px' }}>
-          <h2>Live Stream</h2>
-          <p style={{ marginTop: '8px', color: 'var(--muted)', fontSize: '14px' }}>
-            Tip: Use a YouTube channel ID (UC...) so your embed stays valid even when you stop/start a new live.
-          </p>
-
-          <div style={{ marginTop: '12px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-            <input
-              type="text"
-              value={streamEmbedInput}
-              onChange={(e) => setStreamEmbedInput(e.target.value)}
-              placeholder="YouTube channel ID (UC...), video ID, or YouTube URL"
-              style={{ flex: 1, minWidth: '260px' }}
-            />
-            <button
-              onClick={saveStreamEmbedUrl}
-              disabled={streamEmbedSaving}
-              style={{ background: 'var(--primary)', color: 'var(--primary-text)' }}
-            >
-              {streamEmbedSaving ? 'Saving...' : 'Save'}
-            </button>
-            <button
-              onClick={clearStreamEmbedUrl}
-              disabled={streamEmbedSaving}
-              style={{ background: 'transparent', color: 'var(--muted)', border: '1px solid var(--border)' }}
-            >
-              Clear
-            </button>
-          </div>
-
-          {streamEmbedError && (
-            <p style={{ marginTop: '10px', color: 'var(--danger)', fontSize: '14px' }}>{streamEmbedError}</p>
-          )}
-
-          <div style={{ marginTop: '10px', color: 'var(--muted)', fontSize: '13px' }}>
-            Current:{' '}
-            {streamEmbedCurrent ? (
-              <a
-                href={streamEmbedCurrent}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ color: 'var(--accent-text)' }}
-              >
-                Open embed
-              </a>
-            ) : (
-              <span>Not set</span>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* KPI Cards */}
-      {stats && (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-            gap: '12px',
-            marginBottom: '20px',
-          }}
-        >
-          <div className="card" style={{ marginBottom: 0, textAlign: 'center', padding: '16px' }}>
-            <p style={{ color: 'var(--muted)', fontSize: '12px', marginBottom: '4px' }}>Total Revenue</p>
-            <p style={{ fontSize: '24px', fontWeight: 700, color: 'var(--accent)' }}>
-              ${formatUSDC(stats.totalRevenue)}
-            </p>
-          </div>
-          <div className="card" style={{ marginBottom: 0, textAlign: 'center', padding: '16px' }}>
-            <p style={{ color: 'var(--muted)', fontSize: '12px', marginBottom: '4px' }}>Today</p>
-            <p style={{ fontSize: '24px', fontWeight: 700, color: 'var(--accent-text)' }}>
-              ${formatUSDC(stats.todayRevenue)}
-            </p>
-          </div>
-          <div className="card" style={{ marginBottom: 0, textAlign: 'center', padding: '16px' }}>
-            <p style={{ color: 'var(--muted)', fontSize: '12px', marginBottom: '4px' }}>Supporters</p>
-            <p style={{ fontSize: '24px', fontWeight: 700 }}>
-              {stats.totalSupporters}
-            </p>
-          </div>
-          <div className="card" style={{ marginBottom: 0, textAlign: 'center', padding: '16px' }}>
-            <p style={{ color: 'var(--muted)', fontSize: '12px', marginBottom: '4px' }}>Active Members</p>
-            <p style={{ fontSize: '24px', fontWeight: 700, color: 'var(--accent)' }}>
-              {stats.activeMembers}
-            </p>
-          </div>
-          <div className="card" style={{ marginBottom: 0, textAlign: 'center', padding: '16px' }}>
-            <p style={{ color: 'var(--muted)', fontSize: '12px', marginBottom: '4px' }}>Q&A Queue</p>
-            <p style={{ fontSize: '24px', fontWeight: 700, color: stats.queuedQA > 0 ? '#f59e0b' : 'var(--muted)' }}>
-              {stats.queuedQA}
-            </p>
-          </div>
-          <div className="card" style={{ marginBottom: 0, textAlign: 'center', padding: '16px' }}>
-            <p style={{ color: 'var(--muted)', fontSize: '12px', marginBottom: '4px' }}>Transactions</p>
-            <p style={{ fontSize: '24px', fontWeight: 700 }}>
-              {stats.totalTransactions}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Q&A Tab */}
-      {activeTab === 'qa' && (
-        <>
-          {loading && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <QaItemSkeleton />
-              <QaItemSkeleton />
-              <QaItemSkeleton />
-            </div>
-          )}
-
-          {!loading && items.length === 0 && (
-            <EmptyState
-              icon={filter === 'queued' ? '📥' : filter === 'answered' ? '✅' : '📋'}
-              title={`No ${filter} questions`}
-              description={
-                filter === 'queued'
-                  ? 'New questions from viewers will appear here. Share your viewer page to start receiving paid Q&As.'
-                  : `Questions that have been ${filter} will appear here.`
-              }
-            />
-          )}
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {items.map((item) => (
-              <div key={item.id} className="card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                    <span className={`status-badge ${item.status}`}>{item.status}</span>
-                    <span
-                      style={{
-                        padding: '4px 8px',
-                        borderRadius: '4px',
-                        fontSize: '12px',
-                        background: item.tier === 'priority' ? '#f2da00' : '#9da5b6',
-                        color: 'var(--primary-text)',
-                      }}
-                    >
-                      {item.tier}
-                    </span>
-                    {item.isMember && (
-                      <span
-                        style={{
-                          padding: '4px 8px',
-                          borderRadius: '4px',
-                          fontSize: '12px',
-                          background: 'var(--accent)',
-                          color: 'var(--primary-text)',
-                          fontWeight: 'bold',
-                        }}
-                      >
-                        MEMBER
-                      </span>
-                    )}
-                  </div>
-                  <span style={{ fontSize: '12px', color: 'var(--muted)' }}>
-                    {new Date(item.createdAt).toLocaleTimeString()}
-                  </span>
-                </div>
-
-                <p style={{ fontWeight: 500, marginBottom: '8px' }}>
-                  {item.displayName || item.fromAddress.slice(0, 8) + '...'}
-                </p>
-                <p style={{ marginBottom: '16px', lineHeight: 1.5 }}>{item.message}</p>
-
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
-                  <button
-                    onClick={() => handleQaAssist(item.id)}
-                    disabled={qaAssistLoadingId === item.id}
-                    style={{ background: 'var(--panel-2)', border: '1px solid var(--border)', color: 'var(--text)' }}
-                  >
-                    {qaAssistLoadingId === item.id ? 'AI...' : 'AI Assist'}
-                  </button>
-                  {qaAssistById[item.id] && (
-                    <button
-                      onClick={() => handleCopyAssistAnswer(item.id)}
-                      style={{ background: 'var(--panel-2)', border: '1px solid var(--border)', color: 'var(--text)' }}
-                    >
-                      {qaAssistCopiedId === item.id ? 'Copied' : 'Copy Answer'}
-                    </button>
-                  )}
-                </div>
-
-                {qaAssistErrorById[item.id] && (
-                  <p style={{ marginBottom: '12px', color: 'var(--danger)', fontSize: '12px' }}>
-                    AI: {qaAssistErrorById[item.id]}
-                  </p>
-                )}
-
-                {qaAssistById[item.id] && (
-                  <div
-                    style={{
-                      marginBottom: '12px',
-                      padding: '10px',
-                      border: '1px solid var(--border)',
-                      borderRadius: '8px',
-                      background: 'var(--panel-2)',
-                    }}
-                  >
-                    <p style={{ margin: 0, color: 'var(--muted)', fontSize: '12px' }}>AI Copilot</p>
-                    <p style={{ marginTop: '8px', marginBottom: '8px' }}>
-                      <span style={{ color: 'var(--muted)', fontSize: '12px' }}>Summary:</span>{' '}
-                      {qaAssistById[item.id].summary}
-                    </p>
-                    <p style={{ margin: 0, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{qaAssistById[item.id].answer}</p>
-                    {qaAssistById[item.id].followUps?.length > 0 && (
-                      <div style={{ marginTop: '10px' }}>
-                        <p style={{ margin: 0, color: 'var(--muted)', fontSize: '12px' }}>Follow-ups</p>
-                        <ul style={{ marginTop: '6px', marginBottom: 0, paddingLeft: '18px' }}>
-                          {qaAssistById[item.id].followUps.map((q, idx) => (
-                            <li key={idx} style={{ fontSize: '13px', marginBottom: '4px' }}>
-                              {q}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {filter === 'queued' && (
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                    <button
-                      onClick={() => handleAction(item.id, 'show')}
-                      style={{ background: 'var(--primary)', color: 'var(--primary-text)' }}
-                    >
-                      Show
-                    </button>
-                    <button
-                      onClick={() => handleAction(item.id, 'answered')}
-                      style={{ background: '#5cbffb', color: 'var(--primary-text)' }}
-                    >
-                      Answered
-                    </button>
-                    <button
-                      onClick={() => handleAction(item.id, 'skipped')}
-                      style={{ background: '#9da5b6', color: 'var(--primary-text)' }}
-                    >
-                      Skip
-                    </button>
-                    <button
-                      onClick={() => handleAction(item.id, 'blocked')}
-                      style={{ background: 'var(--danger)', color: '#fff' }}
-                    >
-                      Block
-                    </button>
-                  </div>
-                )}
-
-                {filter === 'showing' && (
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button
-                      onClick={() => handleAction(item.id, 'answered')}
-                      style={{ background: '#5cbffb', color: 'var(--primary-text)' }}
-                    >
-                      Mark Answered
-                    </button>
-                    <button
-                      onClick={() => handleAction(item.id, 'skipped')}
-                      style={{ background: '#9da5b6', color: 'var(--primary-text)' }}
-                    >
-                      Skip
-                    </button>
-                  </div>
-                )}
+            <div className="card" style={{ marginBottom: 0 }}>
+              <div style={{ color: 'var(--muted)', fontSize: '12px' }}>Total USDC balance (known)</div>
+              <div style={{ fontSize: '22px', fontWeight: 800, marginTop: '6px' }}>${formatUsdcAmount(totals.totalBalanceKnown.toString())}</div>
+              <div style={{ color: 'var(--muted)', fontSize: '12px', marginTop: '6px' }}>
+                {totals.balanceKnownCount}/{data?.channels.length ?? 0} wallets fetched
               </div>
-            ))}
+            </div>
           </div>
-        </>
-      )}
+        )}
 
-      {/* Supports Tab */}
-      {activeTab === 'supports' && (
-        <>
-        <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'flex-end' }}>
-          <button
-            onClick={exportSupports}
-            style={{
-              background: 'var(--primary)',
-              color: 'var(--primary-text)',
-              padding: '8px 16px',
-              fontSize: '14px',
-            }}
-          >
-            Export CSV
-          </button>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-          {/* Leaderboard Section */}
+        {!loading && data && data.channels.length === 0 && (
           <div className="card">
-            <h2 style={{ marginBottom: '16px' }}>Top Supporters</h2>
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
-              {(['all', '30d', '7d', '24h'] as const).map((p) => (
-                <button
-                  key={p}
-                  onClick={() => setLeaderboardPeriod(p)}
-                  style={{
-                    background: leaderboardPeriod === p ? 'var(--primary)' : 'var(--panel-2)',
-                    color: leaderboardPeriod === p ? 'var(--primary-text)' : 'var(--text)',
-                    border: '1px solid var(--border)',
-                    fontSize: '12px',
-                    padding: '6px 12px',
-                  }}
-                >
-                  {p === 'all' ? 'All Time' : p}
-                </button>
-              ))}
-            </div>
-
-            {leaderboardLoading && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <LeaderboardItemSkeleton />
-                <LeaderboardItemSkeleton />
-                <LeaderboardItemSkeleton />
-                <LeaderboardItemSkeleton />
-                <LeaderboardItemSkeleton />
-              </div>
-            )}
-
-            {!leaderboardLoading && leaderboard.length === 0 && (
-              <EmptyState
-                icon="🏆"
-                title="No supporters yet"
-                description="When viewers support your stream, the top supporters will appear here."
-              />
-            )}
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {leaderboard.map((entry, idx) => (
-                <div
-                  key={entry.fromAddress}
-                  onClick={() => handleLeaderboardClick(entry.fromAddress)}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    padding: '12px',
-                    background: 'var(--panel-2)',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <span style={{ fontWeight: 'bold', color: 'var(--muted)', width: '24px' }}>#{idx + 1}</span>
-                    <div>
-                      <p style={{ fontWeight: 500, marginBottom: '2px' }}>
-                        {entry.displayName || `${entry.fromAddress.slice(0, 6)}...${entry.fromAddress.slice(-4)}`}
-                      </p>
-                      <p style={{ fontSize: '12px', color: 'var(--muted)' }}>
-                        {entry.supportCount} supports
-                      </p>
-                    </div>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <p style={{ fontWeight: 'bold', color: 'var(--accent)' }}>
-                      ${formatUSDC(entry.totalValueBaseUnits)}
-                    </p>
-                    {entry.lastSupportedAt && (
-                      <p style={{ fontSize: '12px', color: 'var(--muted)' }}>
-                        {new Date(entry.lastSupportedAt * 1000).toLocaleDateString()}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
+            <EmptyState icon="📺" title="No channels found" description="Seed the database or create channels first." />
           </div>
+        )}
 
-          {/* Wallet Lookup Section */}
+        {data && data.channels.length > 0 && (
           <div className="card">
-            <h2 style={{ marginBottom: '16px' }}>Wallet Lookup</h2>
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-              <input
-                type="text"
-                value={walletLookup}
-                onChange={(e) => setWalletLookup(e.target.value)}
-                placeholder="Enter wallet address (0x...)"
-                style={{ flex: 1 }}
-              />
-              <button
-                onClick={handleWalletLookup}
-                style={{ background: 'var(--primary)', color: 'var(--primary-text)' }}
-              >
-                Search
-              </button>
-            </div>
-
-            {walletSupportsLoading && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <LeaderboardItemSkeleton />
-                <LeaderboardItemSkeleton />
-                <LeaderboardItemSkeleton />
-              </div>
-            )}
-
-            {!walletSupportsLoading && walletLookup && walletSupports.length === 0 && (
-              <EmptyState
-                icon="🔍"
-                title="No supports found"
-                description="This wallet hasn't made any supports to this channel yet."
-              />
-            )}
-
-            {!walletSupportsLoading && !walletLookup && (
-              <p style={{ color: 'var(--muted)', fontSize: '14px', textAlign: 'center', padding: '24px 0' }}>
-                Enter a wallet address above to see their support history.
-              </p>
-            )}
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '400px', overflowY: 'auto' }}>
-              {walletSupports.map((support) => (
-                <div key={support.paymentId}>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      padding: '12px',
-                      background: 'var(--panel-2)',
-                      borderRadius: expandedReceipt === support.paymentId ? '8px 8px 0 0' : '8px',
-                    }}
-                  >
-                    <div>
-                      <p style={{ fontWeight: 500, marginBottom: '4px' }}>
-                        <span
-                          style={{
-                            padding: '2px 6px',
-                            borderRadius: '4px',
-                            fontSize: '11px',
-                            marginRight: '8px',
-                            color: 'var(--primary-text)',
-                            background:
-                              support.kind === 'donation'
-                                ? '#f2da00'
-                                : support.kind === 'qa'
-                                ? '#5cbffb'
-                                : support.kind === 'membership'
-                                ? 'var(--accent)'
-                                : '#9da5b6',
-                          }}
-                        >
-                          {support.kind || 'unknown'}
-                        </span>
-                        {support.actionKey || support.qaId?.slice(0, 8) || ''}
-                      </p>
-                      {support.timestamp && (
-                        <p style={{ fontSize: '12px', color: 'var(--muted)' }}>
-                          {new Date(support.timestamp * 1000).toLocaleString()}
-                        </p>
-                      )}
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <p style={{ fontWeight: 'bold', color: 'var(--accent)' }}>
-                        ${formatUSDC(support.value)}
-                      </p>
-                      <button
-                        onClick={() => handleViewReceipt(support.paymentId)}
-                        style={{
-                          background: 'transparent',
-                          border: '1px solid var(--border)',
-                          color: 'var(--muted)',
-                          padding: '4px 8px',
-                          fontSize: '11px',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        {expandedReceipt === support.paymentId ? 'Hide' : 'Receipt'}
-                      </button>
-                    </div>
-                  </div>
-                  {/* Receipt Details Panel */}
-                  {expandedReceipt === support.paymentId && (
-                    <div
-                      style={{
-                        padding: '12px',
-                        background: 'var(--panel)',
-                        borderRadius: '0 0 8px 8px',
-                        borderTop: '1px solid var(--border)',
-                        fontSize: '12px',
-                      }}
-                    >
-                      {receiptLoading && <p style={{ color: 'var(--muted)' }}>Loading receipt...</p>}
-                      {receiptError && <p style={{ color: 'var(--danger)' }}>{receiptError}</p>}
-                      {receiptData && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <span style={{ color: 'var(--muted)' }}>Payment ID:</span>
-                            <span style={{ fontFamily: 'monospace', fontSize: '10px' }}>{receiptData.paymentId.slice(0, 16)}...</span>
-                          </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <span style={{ color: 'var(--muted)' }}>Status:</span>
-                            <span style={{ color: receiptData.status === 'settled' ? 'var(--accent)' : 'var(--text)' }}>
-                              {receiptData.status}
-                            </span>
-                          </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <span style={{ color: 'var(--muted)' }}>Network:</span>
-                            <span>{receiptData.network}</span>
-                          </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <span style={{ color: 'var(--muted)' }}>Amount:</span>
-                            <span>${formatUSDC(receiptData.value)} USDC</span>
-                          </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <span style={{ color: 'var(--muted)' }}>From:</span>
-                            <span style={{ fontFamily: 'monospace' }}>{receiptData.fromAddress.slice(0, 10)}...</span>
-                          </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <span style={{ color: 'var(--muted)' }}>To:</span>
-                            <span style={{ fontFamily: 'monospace' }}>{receiptData.toAddress.slice(0, 10)}...</span>
-                          </div>
-                          {receiptData.txHash && (
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                              <span style={{ color: 'var(--muted)' }}>Transaction:</span>
-                              <a
-                                href={`https://explorer.cronos.org/testnet/tx/${receiptData.txHash}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                style={{ color: 'var(--accent-text)' }}
-                              >
-                                {receiptData.txHash.slice(0, 10)}...
-                              </a>
-                            </div>
-                          )}
-                          {receiptData.blockNumber && (
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                              <span style={{ color: 'var(--muted)' }}>Block:</span>
-                              <span>{receiptData.blockNumber}</span>
-                            </div>
-                          )}
-                          {receiptData.timestamp && (
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                              <span style={{ color: 'var(--muted)' }}>Time:</span>
-                              <span>{new Date(receiptData.timestamp * 1000).toLocaleString()}</span>
-                            </div>
-                          )}
-                          {receiptData.actionKey && (
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                              <span style={{ color: 'var(--muted)' }}>Action:</span>
-                              <span>{receiptData.actionKey}</span>
-                            </div>
-                          )}
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '980px' }}>
+                <thead>
+                  <tr style={{ textAlign: 'left', color: 'var(--muted)', fontSize: '12px' }}>
+                    <th style={{ padding: '10px 12px' }}>Streamer</th>
+                    <th style={{ padding: '10px 12px' }}>Total received</th>
+                    <th style={{ padding: '10px 12px' }}>USDC balance</th>
+                    <th style={{ padding: '10px 12px' }}>Supports</th>
+                    <th style={{ padding: '10px 12px' }}>Last settled</th>
+                    <th style={{ padding: '10px 12px' }}>Wallet</th>
+                    <th style={{ padding: '10px 12px' }}>Links</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.channels.map((ch) => (
+                    <tr key={ch.slug} style={{ borderTop: '1px solid var(--border)' }}>
+                      <td style={{ padding: '12px' }}>
+                        <div style={{ fontWeight: 800 }}>{ch.displayName}</div>
+                        <div style={{ marginTop: '4px', color: 'var(--muted)', fontSize: '12px' }}>
+                          <code style={{ color: 'var(--accent-text)' }}>{ch.slug}</code>
+                          <span style={{ marginLeft: '8px' }}>
+                            {ch.network}
+                            {ch.chainId ? ` (${ch.chainId})` : ''}
+                          </span>
                         </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-        </>
-      )}
-
-      {/* Members Tab */}
-      {activeTab === 'members' && (
-        <>
-        <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'flex-end' }}>
-          <button
-            onClick={exportMembers}
-            style={{
-              background: 'var(--primary)',
-              color: 'var(--primary-text)',
-              padding: '8px 16px',
-              fontSize: '14px',
-            }}
-          >
-            Export CSV
-          </button>
-        </div>
-        <div className="card">
-          <h2 style={{ marginBottom: '16px' }}>Members</h2>
-
-          {/* Filters */}
-          <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
-            {(['active', 'all', 'expired', 'revoked'] as const).map((status) => (
-              <button
-                key={status}
-                onClick={() => setMemberFilter(status)}
-                style={{
-                  background: memberFilter === status ? 'var(--primary)' : 'var(--panel-2)',
-                  color: memberFilter === status ? 'var(--primary-text)' : 'var(--text)',
-                  border: '1px solid var(--border)',
-                  fontSize: '12px',
-                  padding: '6px 12px',
-                }}
-              >
-                {status === 'expired' ? 'Inactive' : status.charAt(0).toUpperCase() + status.slice(1)}
-              </button>
-            ))}
-          </div>
-
-          {/* Search */}
-          <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-            <input
-              type="text"
-              value={memberSearch}
-              onChange={(e) => setMemberSearch(e.target.value)}
-              placeholder="Search by wallet address..."
-              style={{ flex: 1 }}
-            />
-            <button
-              onClick={fetchMembers}
-              style={{ background: 'var(--primary)', color: 'var(--primary-text)' }}
-            >
-              Search
-            </button>
-          </div>
-
-          {membersLoading && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <MemberItemSkeleton />
-              <MemberItemSkeleton />
-              <MemberItemSkeleton />
-            </div>
-          )}
-
-          {!membersLoading && members.length === 0 && (
-            <EmptyState
-              icon="👥"
-              title="No members yet"
-              description={
-                memberFilter === 'active'
-                  ? 'Active channel members will appear here. Set up membership plans to start accepting subscribers.'
-                  : `No ${memberFilter === 'expired' ? 'inactive' : memberFilter} members found.`
-              }
-            />
-          )}
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {members.map((member) => (
-              <div
-                key={member.id}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '12px',
-                  background: 'var(--panel-2)',
-                  borderRadius: '8px',
-                }}
-              >
-                <div>
-                  <p style={{ fontWeight: 500, marginBottom: '4px' }}>
-                    <span
-                      style={{
-                        padding: '2px 6px',
-                        borderRadius: '4px',
-                        fontSize: '11px',
-                        marginRight: '8px',
-                        color: member.active ? 'var(--primary-text)' : member.revoked ? '#fff' : 'var(--primary-text)',
-                        background: member.active
-                          ? 'var(--accent)'
-                          : member.revoked
-                          ? 'var(--danger)'
-                          : '#9da5b6',
-                      }}
-                    >
-                      {member.active ? 'Active' : member.revoked ? 'Revoked' : 'Inactive'}
-                    </span>
-                    {`${member.fromAddress.slice(0, 6)}...${member.fromAddress.slice(-4)}`}
-                  </p>
-                  <p style={{ fontSize: '12px', color: 'var(--muted)' }}>
-                    {member.planName} — Member since:{' '}
-                    {member.memberSince ? new Date(member.memberSince).toLocaleDateString() : '—'}
-                  </p>
-                </div>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  {!member.revoked && (
-                    <button
-                      onClick={() => revokeMember(member.fromAddress)}
-                      style={{
-                        background: 'var(--danger)',
-                        color: '#fff',
-                        fontSize: '12px',
-                        padding: '6px 12px',
-                      }}
-                    >
-                      Revoke
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-        </>
-      )}
-
-      {/* Goals Tab */}
-      {activeTab === 'goals' && (
-        <div className="card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h2>Goals</h2>
-            <button
-              onClick={() => setShowGoalForm(true)}
-              style={{ background: 'var(--primary)', color: 'var(--primary-text)', padding: '8px 16px' }}
-            >
-              + New Goal
-            </button>
-          </div>
-
-          {goalsLoading && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <GoalItemSkeleton />
-              <GoalItemSkeleton />
-            </div>
-          )}
-
-          {!goalsLoading && goals.length === 0 && (
-            <EmptyState
-              icon="🎯"
-              title="No goals created"
-              description="Create donation or membership goals to track progress and display them on your stream overlay."
-              action={
-                <button
-                  onClick={() => setShowGoalForm(true)}
-                  style={{ background: 'var(--primary)', color: 'var(--primary-text)', padding: '10px 20px' }}
-                >
-                  Create Your First Goal
-                </button>
-              }
-            />
-          )}
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {goals.map((goal) => {
-              const progress = goal.type === 'donation'
-                ? BigInt(goal.targetValue) > 0n
-                  ? Number((BigInt(goal.currentValue) * 100n) / BigInt(goal.targetValue))
-                  : 0
-                : parseInt(goal.targetValue, 10) > 0
-                  ? Math.round((parseInt(goal.currentValue, 10) * 100) / parseInt(goal.targetValue, 10))
-                  : 0;
-
-              return (
-                <div
-                  key={goal.id}
-                  style={{
-                    padding: '16px',
-                    background: 'var(--panel-2)',
-                    borderRadius: '8px',
-                    opacity: goal.enabled ? 1 : 0.6,
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                        <span style={{ fontWeight: 600, fontSize: '16px' }}>{goal.name}</span>
-                        <span
-                          style={{
-                            padding: '2px 8px',
-                            borderRadius: '4px',
-                            fontSize: '11px',
-                            background: goal.type === 'donation' ? '#f2da00' : 'var(--accent)',
-                            color: 'var(--primary-text)',
-                            textTransform: 'uppercase',
-                            fontWeight: 'bold',
-                          }}
-                        >
-                          {goal.type}
-                        </span>
-                        {!goal.enabled && (
-                          <span
-                            style={{
-                              padding: '2px 8px',
-                              borderRadius: '4px',
-                              fontSize: '11px',
-                              background: '#9da5b6',
-                              color: 'var(--primary-text)',
-                              textTransform: 'uppercase',
-                            }}
-                          >
-                            Disabled
+                      </td>
+                      <td style={{ padding: '12px', fontWeight: 800 }}>${formatUsdcAmount(ch.totalSettledValueBaseUnits)}</td>
+                      <td style={{ padding: '12px' }}>
+                        {ch.usdcBalanceBaseUnits ? (
+                          <span style={{ fontWeight: 800 }}>${formatUsdcAmount(ch.usdcBalanceBaseUnits)}</span>
+                        ) : (
+                          <span title={ch.usdcBalanceError || undefined} style={{ color: 'var(--muted)' }}>
+                            —
                           </span>
                         )}
-                      </div>
-                      <p style={{ fontSize: '13px', color: 'var(--muted)' }}>
-                        {goal.type === 'donation'
-                          ? `$${formatUSDC(goal.currentValue)} / $${formatUSDC(goal.targetValue)} USDC`
-                          : `${goal.currentValue} / ${goal.targetValue} members`}
-                        {' '}({Math.min(progress, 100)}%)
-                      </p>
-                    </div>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <button
-                        onClick={() => toggleGoalEnabled(goal.id, !goal.enabled)}
-                        style={{
-                          background: goal.enabled ? '#9da5b6' : 'var(--primary)',
-                          color: 'var(--primary-text)',
-                          fontSize: '12px',
-                          padding: '6px 12px',
-                        }}
-                      >
-                        {goal.enabled ? 'Disable' : 'Enable'}
-                      </button>
-                      <button
-                        onClick={() => resetGoal(goal.id)}
-                        style={{
-                          background: '#5cbffb',
-                          color: 'var(--primary-text)',
-                          fontSize: '12px',
-                          padding: '6px 12px',
-                        }}
-                      >
-                        Reset
-                      </button>
-                      <button
-                        onClick={() => deleteGoal(goal.id)}
-                        style={{
-                          background: 'var(--danger)',
-                          color: '#fff',
-                          fontSize: '12px',
-                          padding: '6px 12px',
-                        }}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                  {/* Progress bar */}
-                  <div
-                    style={{
-                      width: '100%',
-                      height: '10px',
-                      background: 'var(--chip-bg)',
-                      borderRadius: '5px',
-                      overflow: 'hidden',
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: `${Math.min(progress, 100)}%`,
-                        height: '100%',
-                        background: goal.type === 'donation'
-                          ? 'linear-gradient(90deg, #f2da00, #00f889)'
-                          : 'linear-gradient(90deg, #5cbffb, #00f889)',
-                        borderRadius: '5px',
-                        transition: 'width 0.3s ease-out',
-                      }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* New Goal Form Modal */}
-          {showGoalForm && (
-            <div
-              style={{
-                position: 'fixed',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                background: 'rgba(0, 0, 0, 0.7)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                zIndex: 9999,
-              }}
-              onClick={() => setShowGoalForm(false)}
-            >
-              <div
-                className="card"
-                style={{ maxWidth: '400px', width: '90%' }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <h2 style={{ marginBottom: '16px' }}>Create New Goal</h2>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <div>
-                    <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px', color: 'var(--muted)' }}>
-                      Goal Type
-                    </label>
-                    <select
-                      value={newGoal.type}
-                      onChange={(e) => setNewGoal({ ...newGoal, type: e.target.value as 'donation' | 'membership' })}
-                      style={{ width: '100%', padding: '8px', background: 'var(--panel-2)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: '4px' }}
-                    >
-                      <option value="donation">Donation (USDC)</option>
-                      <option value="membership">Membership (Active Members)</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px', color: 'var(--muted)' }}>
-                      Goal Name
-                    </label>
-                    <input
-                      type="text"
-                      value={newGoal.name}
-                      onChange={(e) => setNewGoal({ ...newGoal, name: e.target.value })}
-                      placeholder="e.g., Stream Goal, 100 Members"
-                      style={{ width: '100%' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px', color: 'var(--muted)' }}>
-                      Target {newGoal.type === 'donation' ? '(USDC Amount)' : '(Number of Members)'}
-                    </label>
-                    <input
-                      type="number"
-                      value={newGoal.targetValue}
-                      onChange={(e) => setNewGoal({ ...newGoal, targetValue: e.target.value })}
-                      placeholder={newGoal.type === 'donation' ? 'e.g., 100' : 'e.g., 50'}
-                      step={newGoal.type === 'donation' ? '0.01' : '1'}
-                      min="0"
-                      style={{ width: '100%' }}
-                    />
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '20px' }}>
-                  <button
-                    onClick={() => setShowGoalForm(false)}
-                    style={{
-                      background: 'transparent',
-                      color: 'var(--muted)',
-                      border: '1px solid var(--border)',
-                    }}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={createGoal}
-                    style={{
-                      background: 'var(--primary)',
-                      color: 'var(--primary-text)',
-                    }}
-                  >
-                    Create Goal
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Recap Tab */}
-      {activeTab === 'recap' && (
-        <div className="card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', gap: '12px', flexWrap: 'wrap' }}>
-            <div>
-              <h2 style={{ marginBottom: '6px' }}>Stream Recap</h2>
-              <p style={{ margin: 0, color: 'var(--muted)', fontSize: '13px' }}>
-                Generate a post-stream recap (local Ollama). Output avoids full wallet addresses.
-              </p>
-            </div>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <select
-                value={recapPreset}
-                onChange={(e) => setRecapPreset(e.target.value as 'today' | '24h' | '7d')}
-                style={{ padding: '8px', background: 'var(--panel-2)', color: 'var(--text)', border: '1px solid var(--border)' }}
-              >
-                <option value="today">Today</option>
-                <option value="24h">Last 24h</option>
-                <option value="7d">Last 7d</option>
-              </select>
-              <button
-                onClick={handleGenerateRecap}
-                disabled={recapLoading}
-                style={{ background: 'var(--primary)', color: 'var(--primary-text)', padding: '8px 16px' }}
-              >
-                {recapLoading ? 'Generating...' : 'Generate'}
-              </button>
+                      </td>
+                      <td style={{ padding: '12px' }}>{ch.settledCount.toLocaleString()}</td>
+                      <td style={{ padding: '12px', color: 'var(--muted)' }}>{formatUnixSeconds(ch.lastSettledAt)}</td>
+                      <td style={{ padding: '12px' }}>
+                        <button
+                          onClick={() => handleCopyAddress(ch.payToAddress)}
+                          title={ch.payToAddress}
+                          style={{
+                            background: 'transparent',
+                            border: '1px solid var(--border)',
+                            padding: '6px 10px',
+                            borderRadius: '999px',
+                            fontSize: '12px',
+                            color: 'var(--muted)',
+                          }}
+                        >
+                          {formatAddress(ch.payToAddress)} Copy
+                        </button>
+                        {ch.usdcAddress && (
+                          <div style={{ marginTop: '6px', color: 'var(--muted)', fontSize: '11px' }}>
+                            USDC: <code style={{ color: 'var(--accent-text)' }}>{formatAddress(ch.usdcAddress)}</code>
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ padding: '12px' }}>
+                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                          <Link to={`/v/${encodeURIComponent(ch.slug)}`} style={{ color: 'var(--accent-text)', fontSize: '13px' }}>
+                            Viewer
+                          </Link>
+                          <Link to={`/o/${encodeURIComponent(ch.slug)}`} style={{ color: 'var(--accent-text)', fontSize: '13px' }}>
+                            Overlay
+                          </Link>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
-
-          {recapError && (
-            <p style={{ marginTop: 0, marginBottom: '12px', color: 'var(--danger)', fontSize: '13px' }}>
-              {recapError}
-            </p>
-          )}
-
-          {recapWindow && recapWindow.from && recapWindow.to && (
-            <p style={{ marginTop: 0, marginBottom: '12px', color: 'var(--muted)', fontSize: '12px' }}>
-              Window: {new Date(recapWindow.from).toLocaleString()} → {new Date(recapWindow.to).toLocaleString()}
-            </p>
-          )}
-
-          {recapStats && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px', marginBottom: '12px' }}>
-              <div style={{ padding: '10px', border: '1px solid var(--border)', borderRadius: '8px', background: 'var(--panel-2)' }}>
-                <div style={{ color: 'var(--muted)', fontSize: '12px' }}>Revenue</div>
-                <div style={{ fontWeight: 700, fontSize: '18px' }}>${formatUSDC(recapStats.totalRevenueBaseUnits)}</div>
-              </div>
-              <div style={{ padding: '10px', border: '1px solid var(--border)', borderRadius: '8px', background: 'var(--panel-2)' }}>
-                <div style={{ color: 'var(--muted)', fontSize: '12px' }}>Supporters</div>
-                <div style={{ fontWeight: 700, fontSize: '18px' }}>{recapStats.uniqueSupporters}</div>
-              </div>
-              <div style={{ padding: '10px', border: '1px solid var(--border)', borderRadius: '8px', background: 'var(--panel-2)' }}>
-                <div style={{ color: 'var(--muted)', fontSize: '12px' }}>Transactions</div>
-                <div style={{ fontWeight: 700, fontSize: '18px' }}>{recapStats.supportCount}</div>
-              </div>
-              <div style={{ padding: '10px', border: '1px solid var(--border)', borderRadius: '8px', background: 'var(--panel-2)' }}>
-                <div style={{ color: 'var(--muted)', fontSize: '12px' }}>New Members</div>
-                <div style={{ fontWeight: 700, fontSize: '18px' }}>{recapStats.newMembers}</div>
-              </div>
-            </div>
-          )}
-
-          {!recapResult && (
-            <p style={{ margin: 0, color: 'var(--muted)', fontSize: '13px' }}>
-              Click Generate to create a recap based on settled supports and Q&A activity.
-            </p>
-          )}
-
-          {recapResult && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                <h3 style={{ margin: 0 }}>{recapResult.title}</h3>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button
-                    onClick={() => handleCopyRecap('markdown')}
-                    style={{ background: 'var(--panel-2)', border: '1px solid var(--border)', color: 'var(--text)' }}
-                  >
-                    {recapCopied === 'markdown' ? 'Copied' : 'Copy Markdown'}
-                  </button>
-                  <button
-                    onClick={() => handleCopyRecap('tweet')}
-                    style={{ background: 'var(--panel-2)', border: '1px solid var(--border)', color: 'var(--text)' }}
-                  >
-                    {recapCopied === 'tweet' ? 'Copied' : 'Copy Tweet'}
-                  </button>
-                </div>
-              </div>
-
-              <div style={{ padding: '12px', border: '1px solid var(--border)', borderRadius: '8px', background: 'var(--panel-2)' }}>
-                <div style={{ color: 'var(--muted)', fontSize: '12px', marginBottom: '6px' }}>Markdown</div>
-                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: '13px', lineHeight: 1.5 }}>{recapResult.markdown}</pre>
-              </div>
-
-              <div style={{ padding: '12px', border: '1px solid var(--border)', borderRadius: '8px', background: 'var(--panel-2)' }}>
-                <div style={{ color: 'var(--muted)', fontSize: '12px', marginBottom: '6px' }}>Tweet</div>
-                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: '13px', lineHeight: 1.5 }}>{recapResult.tweet}</pre>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Reset Demo Confirmation Dialog */}
-      {showResetConfirm && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0, 0, 0, 0.7)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 9999,
-          }}
-          onClick={() => setShowResetConfirm(false)}
-        >
-          <div
-            className="card"
-            style={{ maxWidth: '400px', width: '90%' }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 style={{ marginBottom: '12px' }}>Reset Demo Data?</h2>
-            <p style={{ color: 'var(--muted)', marginBottom: '20px' }}>
-              This will clear all queued Q&A items and blocked wallets. This action cannot be undone.
-            </p>
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => setShowResetConfirm(false)}
-                style={{
-                  background: 'transparent',
-                  color: 'var(--muted)',
-                  border: '1px solid var(--border)',
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDemoReset}
-                disabled={resetLoading}
-                style={{
-                  background: 'var(--danger)',
-                  color: '#fff',
-                }}
-              >
-                {resetLoading ? 'Resetting...' : 'Reset'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      </div>
-    </div>
+        )}
+      </main>
+    </>
   );
 }
+

@@ -1,11 +1,58 @@
 import { Router } from 'express';
+import { Contract, JsonRpcProvider } from 'ethers';
 import { queryOne, queryAll } from '../db/db.js';
 import { config } from '../config.js';
-import { NETWORKS } from '../x402/constants.js';
+import { NETWORKS, getNetworkConfig } from '../x402/constants.js';
 import { checkYouTubeChannelLive } from '../lib/youtubeLive.js';
 import { getMembershipNftContractAddress, getMembershipTokenId } from '../lib/membershipNft.js';
 
 const router = Router();
+
+const ERC20_BALANCE_ABI = ['function balanceOf(address owner) view returns (uint256)'] as const;
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const resolvedConcurrency = Math.max(1, Math.floor(concurrency));
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+
+  const workers = new Array(Math.min(resolvedConcurrency, items.length)).fill(null).map(async () => {
+    while (true) {
+      const index = nextIndex++;
+      if (index >= items.length) return;
+      results[index] = await fn(items[index], index);
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
+}
+
+type DashboardOverviewChannel = {
+  slug: string;
+  displayName: string;
+  payToAddress: string;
+  network: string;
+  chainId: number | null;
+  usdcAddress: string | null;
+  totalSettledValueBaseUnits: string;
+  settledCount: number;
+  lastSettledAt: number | null;
+  usdcBalanceBaseUnits: string | null;
+  usdcBalanceError: string | null;
+};
+
+type DashboardOverviewResponse = {
+  generatedAt: number;
+  channels: DashboardOverviewChannel[];
+};
+
+const DASHBOARD_OVERVIEW_TTL_MS = 10_000;
+let dashboardOverviewCache: { data: DashboardOverviewResponse; expiresAt: number } | null = null;
+let dashboardOverviewInFlight: Promise<DashboardOverviewResponse> | null = null;
 
 interface ChannelRow {
   id: string;
@@ -525,6 +572,114 @@ router.get('/channels/:slug/payments/:paymentId', async (req, res, next) => {
       createdAt: payment.createdAt,
     });
   } catch (err) {
+    next(err);
+  }
+});
+
+interface ChannelOverviewAggRow {
+  id: string;
+  slug: string;
+  displayName: string;
+  payToAddress: string;
+  network: string;
+  totalSettledValueBaseUnits: string;
+  settledCount: number;
+  lastSettledAt: string | null;
+}
+
+async function buildDashboardOverview(): Promise<DashboardOverviewResponse> {
+  const rows = await queryAll<ChannelOverviewAggRow>(
+    `SELECT
+      c.id,
+      c.slug,
+      c.displayName,
+      c.payToAddress,
+      c.network,
+      COALESCE(SUM(CAST(p.value AS DECIMAL(65, 0))), 0) AS totalSettledValueBaseUnits,
+      COUNT(p.id) AS settledCount,
+      MAX(p.timestamp) AS lastSettledAt
+    FROM channels c
+    LEFT JOIN payments p
+      ON p.channelId = c.id
+     AND p.status = 'settled'
+    GROUP BY c.id
+    ORDER BY c.displayName ASC`
+  );
+
+  const providerByNetwork = new Map<string, JsonRpcProvider>();
+  const tokenByNetwork = new Map<string, Contract>();
+
+  const channels = await mapWithConcurrency(rows, 6, async (row) => {
+    const network = row.network || config.defaultNetwork;
+
+    let usdcBalanceBaseUnits: string | null = null;
+    let usdcBalanceError: string | null = null;
+    let chainId: number | null = null;
+    let usdcAddress: string | null = null;
+
+    try {
+      const networkConfig = getNetworkConfig(network);
+      chainId = networkConfig.chainId;
+      usdcAddress = networkConfig.usdcAddress;
+
+      let provider = providerByNetwork.get(network);
+      if (!provider) {
+        provider = new JsonRpcProvider(networkConfig.rpc, networkConfig.chainId);
+        providerByNetwork.set(network, provider);
+      }
+
+      let token = tokenByNetwork.get(network);
+      if (!token) {
+        token = new Contract(networkConfig.usdcAddress, ERC20_BALANCE_ABI, provider);
+        tokenByNetwork.set(network, token);
+      }
+
+      const balance = (await token.balanceOf(row.payToAddress)) as bigint;
+      usdcBalanceBaseUnits = balance.toString();
+    } catch (err) {
+      usdcBalanceError = (err as Error).message;
+    }
+
+    return {
+      slug: row.slug,
+      displayName: row.displayName,
+      payToAddress: row.payToAddress,
+      network,
+      chainId,
+      usdcAddress,
+      totalSettledValueBaseUnits: String(row.totalSettledValueBaseUnits ?? '0'),
+      settledCount: Number(row.settledCount || 0),
+      lastSettledAt: row.lastSettledAt ? Number(row.lastSettledAt) : null,
+      usdcBalanceBaseUnits,
+      usdcBalanceError,
+    } satisfies DashboardOverviewChannel;
+  });
+
+  return {
+    generatedAt: Date.now(),
+    channels,
+  };
+}
+
+// GET /api/dashboard/overview - Global dashboard overview (no auth; read-only)
+router.get('/dashboard/overview', async (_req, res, next) => {
+  try {
+    const now = Date.now();
+    if (dashboardOverviewCache && now < dashboardOverviewCache.expiresAt) {
+      res.json(dashboardOverviewCache.data);
+      return;
+    }
+
+    if (!dashboardOverviewInFlight) {
+      dashboardOverviewInFlight = buildDashboardOverview();
+    }
+
+    const data = await dashboardOverviewInFlight;
+    dashboardOverviewCache = { data, expiresAt: Date.now() + DASHBOARD_OVERVIEW_TTL_MS };
+    dashboardOverviewInFlight = null;
+    res.json(data);
+  } catch (err) {
+    dashboardOverviewInFlight = null;
     next(err);
   }
 });

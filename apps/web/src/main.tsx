@@ -51,7 +51,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               <Route path="/" element={<Home />} />
               <Route path="/v/:slug" element={<Viewer />} />
               <Route path="/o/:slug" element={<Overlay />} />
-              <Route path="/d/:slug" element={<Dashboard />} />
+              <Route path="/d" element={<Dashboard />} />
+              <Route path="/d/:slug" element={<Navigate to="/d" replace />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
             <ConditionalToastHost />

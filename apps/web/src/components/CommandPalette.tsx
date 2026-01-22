@@ -49,9 +49,9 @@ export function CommandPalette() {
     },
     {
       id: 'dashboard',
-      label: `Go to Dashboard (${currentSlug})`,
+      label: 'Go to Dashboard',
       shortcut: 'G D',
-      action: () => navigate(`/d/${currentSlug}`),
+      action: () => navigate('/d'),
       category: 'navigation',
     },
     // Settings
