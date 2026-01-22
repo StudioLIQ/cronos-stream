@@ -71,7 +71,14 @@ USDC.e 컨트랙트(테스트넷):
 
 ## 2) 환경변수 설정 (API)
 
-API는 `apps/api/.env` 파일을 읽습니다.
+API는 아래 파일들을 자동으로 읽습니다(앞이 우선순위가 높음):
+
+1) `apps/api/.env.local` (로컬 개인용, gitignore)
+2) `apps/api/.env` (로컬 개인용, gitignore)
+3) `apps/api/.env.railway` (데모/테스트넷용, 커밋 가능)
+4) `apps/api/.env.demo` (옵션, 커밋 가능)
+
+### 2-1) 로컬 개인 설정(권장)
 
 1) `apps/api/.env` 생성:
 
@@ -97,11 +104,36 @@ DB_USER=stream402
 DB_PASSWORD=stream402
 DB_NAME=stream402
 
+# (선택) Membership NFT (ERC-1155)
+# - 설정하면 멤버십 결제 후 ERC-1155 멤버십 NFT를 추가로 민팅합니다.
+# - 민터 지갑은 해당 네트워크의 가스비(TCRO)를 보유해야 합니다.
+# MEMBERSHIP_NFT_ADDRESS_CRONOS_TESTNET=0x...
+# MEMBERSHIP_NFT_ADDRESS_CRONOS_MAINNET=0x...
+# MEMBERSHIP_NFT_MINTER_PRIVATE_KEY=0x...
+
 # (옵션) 단일 URL로 쓰고 싶으면 아래로 대체 가능
 # DATABASE_URL=mysql://stream402:stream402@127.0.0.1:3307/stream402
 ```
 
 2) 저장 후 커밋하지 말 것 (로컬 전용).
+
+---
+
+## (선택) Membership NFT 배포/설정
+
+멤버십은 x402 결제 정산 후, 서버가 **ERC-1155 멤버십 NFT를 추가로 민팅**할 수 있습니다.
+
+- `MEMBERSHIP_NFT_ADDRESS_CRONOS_TESTNET`: 배포한 ERC-1155 컨트랙트 주소
+- `MEMBERSHIP_NFT_MINTER_PRIVATE_KEY`: 컨트랙트 `mint()` 권한을 가진 민터 지갑 프라이빗키
+- 민터 지갑은 **가스비(TCRO)** 를 보유해야 합니다.
+
+토큰 ID는 채널 slug 기반으로 결정됩니다:
+- `tokenId = keccak256("stream402:membership:<slug>")` (uint256)
+
+### 2-2) 데모/테스트넷 공용 설정(옵션)
+
+- Railway 배포/공유를 쉽게 하려면 `apps/api/.env.railway`를 수정해서 커밋해도 됩니다.
+- 실제 서비스에서는 이 방식(환경변수 파일 커밋)을 절대 권장하지 않습니다.
 
 ---
 

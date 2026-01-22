@@ -1,3 +1,5 @@
+import './env.js';
+
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
@@ -14,6 +16,7 @@ import publicRoutes from './routes/public.js';
 import paywalledRoutes from './routes/paywalled.js';
 import dashboardRoutes from './routes/dashboard.js';
 import profileRoutes from './routes/profile.js';
+import agentRoutes from './routes/agent.js';
 
 const app = express();
 
@@ -28,6 +31,9 @@ app.get('/health', (_req, res) => {
 
 // Public routes
 app.use('/api', publicRoutes);
+
+// Agent routes (free planning helpers)
+app.use('/api', agentRoutes);
 
 // Paywalled routes
 app.use('/api', paywalledRoutes);
@@ -100,13 +106,37 @@ if (existsSync(webDistPath)) {
 // Global error handler
 app.use(
   (
-    err: Error,
+    err: Error & { status?: number; statusCode?: number },
     _req: express.Request,
     res: express.Response,
     _next: express.NextFunction
   ) => {
-    logger.error('Unhandled error', { message: err.message, stack: err.stack });
-    res.status(500).json({ error: 'Internal Server Error' });
+    const status =
+      typeof err.status === 'number'
+        ? err.status
+        : typeof err.statusCode === 'number'
+          ? err.statusCode
+          : 500;
+
+    const isProd = process.env.NODE_ENV === 'production';
+    const errorLabel = status >= 500 ? 'Internal Server Error' : 'Bad Request';
+
+    logger.error('Unhandled error', { status, message: err.message, stack: err.stack });
+
+    if (isProd) {
+      res.status(status).json({ error: errorLabel });
+      return;
+    }
+
+    // Dev-friendly responses:
+    // - for 4xx: return the actual message in `error`
+    // - for 5xx: keep a stable `error` label and include the real message as `reason`
+    if (status >= 500) {
+      res.status(status).json({ error: errorLabel, reason: err.message });
+      return;
+    }
+
+    res.status(status).json({ error: err.message });
   }
 );
 

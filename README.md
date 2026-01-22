@@ -34,7 +34,12 @@ See `DEPLOY.md` for the full checklist.
 
 ### Environment Variables
 
-Create `apps/api/.env`:
+The API auto-loads (in order): `apps/api/.env.local`, `apps/api/.env`, `apps/api/.env.railway`, `apps/api/.env.demo`.
+
+- Local dev: create `apps/api/.env` (gitignored)
+- Railway demo/testnet: edit `apps/api/.env.railway` and commit/push (demo-only workflow)
+
+Example `apps/api/.env`:
 
 ```env
 # Required: Your wallet address to receive payments
@@ -47,6 +52,7 @@ DASHBOARD_TOKEN=your-secret-token
 DEFAULT_NETWORK=cronos-testnet
 
 # Optional: API port (default: 3402)
+# - On Railway you can omit this; the app will use PORT automatically.
 API_PORT=3402
 
 # Database (MySQL)
@@ -56,6 +62,13 @@ DB_PORT=3307
 DB_USER=stream402
 DB_PASSWORD=stream402
 DB_NAME=stream402
+
+# (Optional) Membership NFT (ERC-1155)
+# - If set, membership purchases also mint a soulbound ERC-1155 token after x402 settlement.
+# - The minter wallet needs TCRO for gas on the target network.
+# MEMBERSHIP_NFT_ADDRESS_CRONOS_TESTNET=0x...
+# MEMBERSHIP_NFT_ADDRESS_CRONOS_MAINNET=0x...
+# MEMBERSHIP_NFT_MINTER_PRIVATE_KEY=0x...
 
 # (Optional) Demo viewer livestream embed (YouTube)
 # - Preferred: set a YouTube Channel ID (starts with UC...) to always show the current live

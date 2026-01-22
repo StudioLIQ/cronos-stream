@@ -303,7 +303,7 @@ pnpm dev (starts API + Web)
 pnpm build
 pnpm start (production mode; API serves web dist)
 Environment:
-apps/api/.env
+apps/api/.env (local, gitignored) or apps/api/.env.railway (demo deploy, committable)
 apps/web/.env (optional; proxy-based local dev can use relative paths)
 13) OBS usage
 Add a Browser source

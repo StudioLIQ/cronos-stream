@@ -1,10 +1,13 @@
 const LOG_LEVELS = ['debug', 'info', 'warn', 'error'] as const;
 type LogLevel = (typeof LOG_LEVELS)[number];
 
-const currentLevel = (process.env.LOG_LEVEL || 'info') as LogLevel;
+function getCurrentLevel(): LogLevel {
+  const envLevel = (process.env.LOG_LEVEL || 'info') as LogLevel;
+  return LOG_LEVELS.includes(envLevel) ? envLevel : 'info';
+}
 
 function shouldLog(level: LogLevel): boolean {
-  return LOG_LEVELS.indexOf(level) >= LOG_LEVELS.indexOf(currentLevel);
+  return LOG_LEVELS.indexOf(level) >= LOG_LEVELS.indexOf(getCurrentLevel());
 }
 
 function formatTimestamp(): string {
