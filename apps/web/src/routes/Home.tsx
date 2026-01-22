@@ -166,7 +166,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Quick Links */}
+        {/* Feature Labels */}
         <div
           style={{
             display: 'flex',
@@ -176,15 +176,9 @@ export default function Home() {
             flexWrap: 'wrap',
           }}
         >
-          <Link to="/v/demo" style={{ color: 'var(--accent-text)', fontSize: '14px' }}>
-            Viewer Page
-          </Link>
-          <Link to="/o/demo" style={{ color: 'var(--accent-text)', fontSize: '14px' }}>
-            OBS Overlay
-          </Link>
-          <Link to="/d/demo" style={{ color: 'var(--accent-text)', fontSize: '14px' }}>
-            Dashboard
-          </Link>
+          <span style={{ color: 'var(--muted)', fontSize: '14px' }}>Viewer Page</span>
+          <span style={{ color: 'var(--muted)', fontSize: '14px' }}>OBS Overlay</span>
+          <span style={{ color: 'var(--muted)', fontSize: '14px' }}>Dashboard</span>
         </div>
       </section>
 

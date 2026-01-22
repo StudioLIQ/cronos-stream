@@ -8,6 +8,7 @@ import Dashboard from './routes/Dashboard';
 import { ToastProvider, ToastHost } from './components/Toast';
 import { StatusBar } from './components/StatusBar';
 import { ThemeProvider } from './contexts/ThemeContext';
+import { WalletProvider } from './contexts/WalletContext';
 import { CommandPalette } from './components/CommandPalette';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import './index.css';
@@ -44,18 +45,20 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <ErrorBoundary>
     <ThemeProvider>
       <ToastProvider>
-        <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/v/:slug" element={<Viewer />} />
-            <Route path="/o/:slug" element={<Overlay />} />
-            <Route path="/d/:slug" element={<Dashboard />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-          <ConditionalToastHost />
-          <ConditionalStatusBar />
-          <ConditionalCommandPalette />
-        </BrowserRouter>
+        <WalletProvider>
+          <BrowserRouter>
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/v/:slug" element={<Viewer />} />
+              <Route path="/o/:slug" element={<Overlay />} />
+              <Route path="/d/:slug" element={<Dashboard />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+            <ConditionalToastHost />
+            <ConditionalStatusBar />
+            <ConditionalCommandPalette />
+          </BrowserRouter>
+        </WalletProvider>
       </ToastProvider>
     </ThemeProvider>
     </ErrorBoundary>

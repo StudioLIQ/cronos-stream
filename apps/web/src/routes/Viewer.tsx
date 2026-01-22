@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { fetchChannel, fetchActions, fetchStreamStatus, triggerAction, donate, submitQA, is402Response, fetchMembershipPlans, fetchMembershipStatus, subscribeMembership, fetchMySupports, fetchChannelProfile, fetchGlobalProfileNonce, fetchChannelProfileNonce, updateGlobalProfile, updateChannelProfile, fetchPublicReceipt } from '../lib/api';
 import type { Channel, Action, StreamStatusResponse, PaymentResponse, MembershipPlan, MembershipStatus, MembershipResponse, SupportItem, ChannelProfile, PaymentReceipt } from '../lib/api';
-import { connectWallet, getSigner, isConnected, switchToCronosTestnet } from '../lib/wallet';
 import { createPaymentHeader, formatUsdcAmount } from '../lib/x402';
 import { TopNav } from '../components/TopNav';
 import { OverlayLayer } from '../components/OverlayLayer';
@@ -13,6 +12,7 @@ import { copyToClipboard } from '../lib/clipboard';
 import { ActionButtonSkeleton, Skeleton } from '../components/Skeleton';
 import { EmptyState } from '../components/EmptyState';
 import { useConfetti } from '../hooks/useConfetti';
+import { useWallet } from '../contexts/WalletContext';
 
 type PaymentState = 'idle' | 'needs_payment' | 'signing' | 'settling' | 'done' | 'error';
 
@@ -49,10 +49,10 @@ export default function Viewer() {
   const navigate = useNavigate();
   const { addToast } = useToasts();
   const { fireSuccess } = useConfetti();
+  const { address: walletAddress, signer: walletSigner, isConnected: isWalletConnected } = useWallet();
   const [channel, setChannel] = useState<Channel | null>(null);
   const [actions, setActions] = useState<Action[]>([]);
   const [streamStatus, setStreamStatus] = useState<StreamStatusResponse | null>(null);
-  const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -245,19 +245,6 @@ export default function Viewer() {
       });
   }, [slug, walletAddress]);
 
-  const handleConnect = async () => {
-    try {
-      await switchToCronosTestnet();
-      const state = await connectWallet();
-      setWalletAddress(state.address);
-      addToast('Wallet connected successfully', 'success');
-    } catch (err) {
-      const message = (err as Error).message;
-      addToast(message, 'error');
-      setError(message);
-    }
-  };
-
   const handleCopyTxHash = async (txHash: string) => {
     const success = await copyToClipboard(txHash);
     if (success) {
@@ -277,7 +264,7 @@ export default function Viewer() {
       const nonceData = await fetchGlobalProfileNonce(walletAddress);
 
       // Sign message
-      const signer = getSigner();
+      const signer = walletSigner;
       if (!signer) throw new Error('Wallet not connected');
 
       const message = `Stream402 Global Profile Update
@@ -325,7 +312,7 @@ Expires At: ${nonceData.expiresAt}`;
       const nonceData = await fetchChannelProfileNonce(slug, walletAddress);
 
       // Sign message
-      const signer = getSigner();
+      const signer = walletSigner;
       if (!signer) throw new Error('Wallet not connected');
 
       const message = `Stream402 Channel Profile Update
@@ -374,7 +361,7 @@ Expires At: ${nonceData.expiresAt}`;
       const nonceData = await fetchChannelProfileNonce(slug, walletAddress);
 
       // Sign message
-      const signer = getSigner();
+      const signer = walletSigner;
       if (!signer) throw new Error('Wallet not connected');
 
       const message = `Stream402 Channel Profile Update
@@ -425,7 +412,7 @@ Expires At: ${nonceData.expiresAt}`;
         setPaymentState('signing');
         addToast('Please sign the transaction in your wallet', 'info');
 
-        const signer = getSigner();
+        const signer = walletSigner;
         if (!signer) {
           throw new Error('Wallet not connected');
         }
@@ -476,7 +463,7 @@ Expires At: ${nonceData.expiresAt}`;
         setQaState('signing');
         addToast('Please sign the transaction in your wallet', 'info');
 
-        const signer = getSigner();
+        const signer = walletSigner;
         if (!signer) {
           throw new Error('Wallet not connected');
         }
@@ -528,7 +515,7 @@ Expires At: ${nonceData.expiresAt}`;
         setMembershipState('signing');
         addToast('Please sign the transaction in your wallet', 'info');
 
-        const signer = getSigner();
+        const signer = walletSigner;
         if (!signer) {
           throw new Error('Wallet not connected');
         }
@@ -596,7 +583,7 @@ Expires At: ${nonceData.expiresAt}`;
         setDonationState('signing');
         addToast('Please sign the transaction in your wallet', 'info');
 
-        const signer = getSigner();
+        const signer = walletSigner;
         if (!signer) {
           throw new Error('Wallet not connected');
         }
@@ -713,23 +700,10 @@ Expires At: ${nonceData.expiresAt}`;
     <div>
       <TopNav />
 	      <div className="container">
-	      <header style={{ marginBottom: '24px' }}>
-	        <h1>{channel.displayName}</h1>
-	        <p style={{ color: 'var(--muted)', fontSize: '14px' }}>Network: {channel.network}</p>
-
-	        {!isConnected() ? (
-	          <button
-	            onClick={handleConnect}
-	            style={{ marginTop: '12px', background: 'var(--primary)', color: 'var(--primary-text)' }}
-	          >
-	            Connect Wallet
-	          </button>
-	        ) : (
-	          <p style={{ marginTop: '12px', color: 'var(--accent)', fontSize: '14px' }}>
-	            Connected: {walletAddress?.slice(0, 6)}...{walletAddress?.slice(-4)}
-	          </p>
-	        )}
-	      </header>
+		      <header style={{ marginBottom: '24px' }}>
+		        <h1>{channel.displayName}</h1>
+		        <p style={{ color: 'var(--muted)', fontSize: '14px' }}>Network: {channel.network}</p>
+		      </header>
 
 	      {error && (
 	        <div className="card" style={{ background: 'var(--danger)', color: '#fff', marginBottom: '16px' }}>
@@ -813,7 +787,7 @@ Expires At: ${nonceData.expiresAt}`;
                 <button
                   key={action.actionKey}
                   onClick={() => handleTriggerAction(action.actionKey)}
-                  disabled={!isConnected() || paymentState === 'signing' || paymentState === 'settling'}
+                  disabled={!isWalletConnected || paymentState === 'signing' || paymentState === 'settling'}
 	                  style={{
 	                    padding: '16px',
 	                    background:
@@ -921,7 +895,7 @@ Expires At: ${nonceData.expiresAt}`;
 	                    </p>
 	                    <button
 	                      onClick={handleSubscribe}
-	                      disabled={!isConnected() || membershipState === 'signing' || membershipState === 'settling'}
+	                      disabled={!isWalletConnected || membershipState === 'signing' || membershipState === 'settling'}
 	                      style={{ marginTop: '12px', background: 'var(--primary)', color: 'var(--primary-text)', width: '100%' }}
 	                    >
                       {membershipState === 'signing'
@@ -964,7 +938,7 @@ Expires At: ${nonceData.expiresAt}`;
 
 	                    <button
 	                      onClick={handleSubscribe}
-	                      disabled={!isConnected() || !selectedPlan || membershipState === 'signing' || membershipState === 'settling'}
+	                      disabled={!isWalletConnected || !selectedPlan || membershipState === 'signing' || membershipState === 'settling'}
 	                      style={{ background: 'var(--primary)', color: 'var(--primary-text)', width: '100%' }}
 	                    >
                       {membershipState === 'signing'
@@ -1070,7 +1044,7 @@ Expires At: ${nonceData.expiresAt}`;
 
 	              <button
 	                onClick={handleDonate}
-	                disabled={!isConnected() || donationState === 'signing' || donationState === 'settling'}
+	                disabled={!isWalletConnected || donationState === 'signing' || donationState === 'settling'}
 	                style={{ marginTop: '12px', background: 'var(--primary)', color: 'var(--primary-text)', width: '100%' }}
 	              >
                 {donationState === 'signing'
@@ -1151,7 +1125,7 @@ Expires At: ${nonceData.expiresAt}`;
 
 	              <button
 	                onClick={handleSubmitQA}
-	                disabled={!isConnected() || !qaMessage.trim() || qaState === 'signing' || qaState === 'settling'}
+	                disabled={!isWalletConnected || !qaMessage.trim() || qaState === 'signing' || qaState === 'settling'}
 	                style={{ background: 'var(--primary)', color: 'var(--primary-text)', width: '100%' }}
 	              >
                 {qaState === 'signing' ? 'Signing...' : qaState === 'settling' ? 'Settling...' : 'Submit Question'}
@@ -1174,7 +1148,7 @@ Expires At: ${nonceData.expiresAt}`;
           </section>
 
           {/* My Supports Section */}
-          {isConnected() && (
+          {isWalletConnected && (
             <section style={{ marginTop: '24px' }}>
               <h2>My Supports</h2>
 	              <div className="card" style={{ marginTop: '12px' }}>
@@ -1359,7 +1333,7 @@ Expires At: ${nonceData.expiresAt}`;
             </section>
           )}
           {/* Nickname Section */}
-          {isConnected() && (
+          {isWalletConnected && (
             <section style={{ marginTop: '24px' }}>
               <h2>Nickname</h2>
 	              <div className="card" style={{ marginTop: '12px' }}>

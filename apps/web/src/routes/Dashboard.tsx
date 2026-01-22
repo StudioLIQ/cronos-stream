@@ -5,6 +5,7 @@ import { QaItemSkeleton, LeaderboardItemSkeleton, MemberItemSkeleton, GoalItemSk
 import { EmptyState } from '../components/EmptyState';
 import { ShareLinks } from '../components/ShareLinks';
 import { generateCsv, downloadCsv, formatTimestamp, formatDatetime } from '../lib/csv';
+import { TopNav } from '../components/TopNav';
 
 interface QaItem {
   id: string;
@@ -818,33 +819,38 @@ export default function Dashboard() {
 
   if (!authenticated) {
     return (
-      <div className="container">
-        <h1>Dashboard - {slug}</h1>
-        <div className="card" style={{ marginTop: '24px' }}>
-          <h2>Authentication Required</h2>
-          <div style={{ marginTop: '16px' }}>
-            <input
-              type="password"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              placeholder="Enter dashboard token"
-              style={{ width: '100%', marginBottom: '12px' }}
-            />
-            <button
-              onClick={handleAuth}
-              style={{ background: 'var(--primary)', color: 'var(--primary-text)', width: '100%' }}
-            >
-              Authenticate
-            </button>
+      <div>
+        <TopNav />
+        <div className="container">
+          <h1>Dashboard - {slug}</h1>
+          <div className="card" style={{ marginTop: '24px' }}>
+            <h2>Authentication Required</h2>
+            <div style={{ marginTop: '16px' }}>
+              <input
+                type="password"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder="Enter dashboard token"
+                style={{ width: '100%', marginBottom: '12px' }}
+              />
+              <button
+                onClick={handleAuth}
+                style={{ background: 'var(--primary)', color: 'var(--primary-text)', width: '100%' }}
+              >
+                Authenticate
+              </button>
+            </div>
+            {error && <p style={{ marginTop: '12px', color: 'var(--danger)' }}>{error}</p>}
           </div>
-          {error && <p style={{ marginTop: '12px', color: 'var(--danger)' }}>{error}</p>}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="container">
+    <div>
+      <TopNav />
+      <div className="container">
       <header style={{ marginBottom: '24px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h1>Dashboard - {slug}</h1>
@@ -1913,6 +1919,7 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }
