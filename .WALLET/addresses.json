@@ -1,0 +1,110 @@
+{
+  "abc-news-live": {
+    "displayName": "ABC News",
+    "address": "0x1255755b608749D9239b129E19437792106426CE"
+  },
+  "aljazeera-english": {
+    "displayName": "Al Jazeera English",
+    "address": "0x4806a1B2c300C306Ac1b298B12B276bfECFd2A3D"
+  },
+  "anan-wildlife-falls": {
+    "displayName": "Explore Bears & Bison",
+    "address": "0x005099A5167adb25474631eE4B3168E55F047DE7"
+  },
+  "arirang-tv": {
+    "displayName": "Arirang TV",
+    "address": "0x89C628f38AEC21546AA5F69e0F80C5E0100820D8"
+  },
+  "bloomberg-live": {
+    "displayName": "Bloomberg Television",
+    "address": "0x2aD237b74380211c4Ae811344933c78aA00c29Bb"
+  },
+  "chillhop-radio": {
+    "displayName": "Chillhop Music",
+    "address": "0x1c63B935017A5dCC7EC33E751671EF050de11c68"
+  },
+  "decorah-eagles": {
+    "displayName": "Explore Birds Bats Bees",
+    "address": "0xC05E8D12e4d180eb1B22E99273069be1dBcaA97E"
+  },
+  "demo": {
+    "displayName": "Demo Channel",
+    "address": "0x0647E088e7B12991A58100E3757f9d66c1Df87E4"
+  },
+  "dw-news": {
+    "displayName": "DW News",
+    "address": "0x7e7a5554D950cf44293b05643301F1722F9db5Aa"
+  },
+  "euronews-english": {
+    "displayName": "euronews",
+    "address": "0x846dd3121b17aff16D86c6591CEFC962de520E2F"
+  },
+  "fox-weather": {
+    "displayName": "FOX Weather",
+    "address": "0xE37e7c50B07351e4b41fA1a77660E53dC9e92e00"
+  },
+  "france24-fr": {
+    "displayName": "FRANCE 24",
+    "address": "0x75B5F3B8db992B3C13Eff511a0F2C7AD41ccCf9E"
+  },
+  "iss-live": {
+    "displayName": "afarTV",
+    "address": "0x4F97065Ef6A4317B4e124f4baD0A9128b60E5Fd9"
+  },
+  "jazz-piano-radio": {
+    "displayName": "Cafe Music BGM channel",
+    "address": "0x398c5b6962dBF5e29F406EE0FfF6e838A3A52736"
+  },
+  "kbs-world": {
+    "displayName": "KBS WORLD TV",
+    "address": "0xfE942A08AF6cBDF13684465Ab5A3D49D366076C1"
+  },
+  "livenow-fox": {
+    "displayName": "LiveNOW from FOX",
+    "address": "0x155Db7bA9de65505dA5A916EeF3b60f6C587babC"
+  },
+  "lofi-girl": {
+    "displayName": "Lofi Girl",
+    "address": "0x77986A264E47f9c872C4b44c85eC58d389F3486C"
+  },
+  "lofi-girl-synthwave": {
+    "displayName": "Lofi Girl",
+    "address": "0x60f2AB3431293e9F5A224D1873765075CCfE1E80"
+  },
+  "nbc-news-now": {
+    "displayName": "NBC News",
+    "address": "0x01F271190952e0237Cf4C9276ceD4E9A75E00FD3"
+  },
+  "nhk-world-japan": {
+    "displayName": "NHK WORLD-JAPAN",
+    "address": "0x6758F0a98F107680a259EeFd552A41677A3402fB"
+  },
+  "scripps-news": {
+    "displayName": "Scripps News",
+    "address": "0x95C9dA3cF6Dee9F780a2927Ba9D1b14AcfdeD8Ca"
+  },
+  "sky-news": {
+    "displayName": "Sky News",
+    "address": "0x7100A230D879d55e20f0a30Bf0C30Cbe830bc945"
+  },
+  "times-square": {
+    "displayName": "EarthCam",
+    "address": "0x6Ad98e97881A943cC3c650Ec099e9EC903978365"
+  },
+  "weather-channel": {
+    "displayName": "The Weather Channel",
+    "address": "0x0050ae2ae7d73Ba68f058a92bC45BC416447152a"
+  },
+  "white-noise": {
+    "displayName": "Rain on The Park",
+    "address": "0xa3d8b145E0cb5f259171A69522C8B5F6B4fB517D"
+  },
+  "yonhapnews-tv": {
+    "displayName": "YonhapnewsTV",
+    "address": "0xE7Da9e4898E682Fb9DC3cC71ac72d1059C5cF64e"
+  },
+  "ytn": {
+    "displayName": "YTN",
+    "address": "0xf99443562997848D6C5b737b3bb17d90E83bA5eD"
+  }
+}

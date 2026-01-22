@@ -13,4 +13,5 @@ dist/
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts
-.WALLET/
+.WALLET/*
+!.WALLET/addresses.json
