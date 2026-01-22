@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { fetchChannel, fetchActions, fetchStreamStatus, triggerAction, donate, submitQA, is402Response, fetchMembershipPlans, fetchMembershipStatus, subscribeMembership, fetchMySupports, fetchChannelProfile, fetchGlobalProfileNonce, fetchChannelProfileNonce, updateGlobalProfile, updateChannelProfile, fetchPublicReceipt } from '../lib/api';
-import type { Channel, Action, StreamStatusResponse, PaymentResponse, MembershipPlan, MembershipStatus, MembershipResponse, SupportItem, ChannelProfile, PaymentReceipt, Error402Response } from '../lib/api';
+import type { Channel, Action, StreamStatusResponse, PaymentResponse, MembershipPlan, MembershipStatus, MembershipResponse, SupportItem, ChannelProfile, PaymentReceipt } from '../lib/api';
 import { createPaymentHeader, formatUsdcAmount } from '../lib/x402';
 import { TopNav } from '../components/TopNav';
 import { OverlayLayer } from '../components/OverlayLayer';
