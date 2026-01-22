@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { fetchChannel, fetchActions, triggerAction, donate, submitQA, is402Response, fetchMembershipPlans, fetchMembershipStatus, subscribeMembership, fetchMySupports, fetchChannelProfile, fetchGlobalProfileNonce, fetchChannelProfileNonce, updateGlobalProfile, updateChannelProfile } from '../lib/api';
-import type { Channel, Action, PaymentResponse, MembershipPlan, MembershipStatus, MembershipResponse, SupportItem, ChannelProfile } from '../lib/api';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { fetchChannel, fetchActions, fetchStreamStatus, triggerAction, donate, submitQA, is402Response, fetchMembershipPlans, fetchMembershipStatus, subscribeMembership, fetchMySupports, fetchChannelProfile, fetchGlobalProfileNonce, fetchChannelProfileNonce, updateGlobalProfile, updateChannelProfile } from '../lib/api';
+import type { Channel, Action, StreamStatusResponse, PaymentResponse, MembershipPlan, MembershipStatus, MembershipResponse, SupportItem, ChannelProfile } from '../lib/api';
 import { connectWallet, getSigner, isConnected, switchToCronosTestnet } from '../lib/wallet';
 import { createPaymentHeader, formatUsdcAmount } from '../lib/x402';
 import { TopNav } from '../components/TopNav';
@@ -46,10 +46,12 @@ function parseUsdcToBaseUnits(input: string): { ok: true; baseUnits: string } | 
 
 export default function Viewer() {
   const { slug } = useParams<{ slug: string }>();
+  const navigate = useNavigate();
   const { addToast } = useToasts();
   const { fireSuccess } = useConfetti();
   const [channel, setChannel] = useState<Channel | null>(null);
   const [actions, setActions] = useState<Action[]>([]);
+  const [streamStatus, setStreamStatus] = useState<StreamStatusResponse | null>(null);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -111,6 +113,36 @@ export default function Viewer() {
         setLoading(false);
       });
   }, [slug]);
+
+  // Best-effort stream status (used to resolve live_stream -> concrete videoId, and block entry if offline)
+  useEffect(() => {
+    if (!slug) return;
+
+    let cancelled = false;
+    setStreamStatus(null);
+
+    fetchStreamStatus(slug)
+      .then((status) => {
+        if (cancelled) return;
+        setStreamStatus(status);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setStreamStatus({ ok: true, status: 'unknown', checkedAt: new Date().toISOString() });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [slug]);
+
+  useEffect(() => {
+    if (!slug || !streamStatus || !streamStatus.ok) return;
+    if (streamStatus.status === 'offline' || streamStatus.status === 'unconfigured') {
+      addToast('Stream is offline right now', 'warning');
+      navigate('/', { replace: true });
+    }
+  }, [slug, streamStatus, addToast, navigate]);
 
   // Fetch membership status when wallet is connected
   useEffect(() => {
@@ -595,7 +627,8 @@ Expires At: ${nonceData.expiresAt}`;
   }
 
   const featured = slug ? getFeaturedStreamBySlug(slug) : undefined;
-  const streamInput = channel?.streamEmbedUrl || featured?.youtube.url || null;
+  const resolvedEmbed = streamStatus?.ok && streamStatus.status === 'live' ? streamStatus.embedUrl : null;
+  const streamInput = resolvedEmbed || channel?.streamEmbedUrl || featured?.youtube.url || null;
   const embedUrl = streamInput ? toYouTubeEmbedUrl(streamInput) : null;
   const autoplayUrl = embedUrl
     ? (() => {

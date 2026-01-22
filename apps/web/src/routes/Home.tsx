@@ -1,12 +1,46 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { FEATURED_STREAMS } from '../data/featuredStreams';
 import { TopNav } from '../components/TopNav';
-import { youtubeThumbnailUrl } from '../lib/youtube';
+import { isYouTubeChannelId, youtubeThumbnailUrl } from '../lib/youtube';
 import { EmptyState } from '../components/EmptyState';
+import { fetchStreamStatus } from '../lib/api';
+import type { StreamStatusResponse } from '../lib/api';
 
 export default function Home() {
   const [query, setQuery] = useState('');
+  const [streamStatusBySlug, setStreamStatusBySlug] = useState<Record<string, StreamStatusResponse>>({});
+
+  useEffect(() => {
+    const slugsToCheck = FEATURED_STREAMS.filter((s) => isYouTubeChannelId(s.youtube.url)).map((s) => s.slug);
+    if (slugsToCheck.length === 0) return;
+
+    let cancelled = false;
+
+    const refresh = async () => {
+      const entries = await Promise.all(
+        slugsToCheck.map(async (slug) => {
+          try {
+            const status = await fetchStreamStatus(slug);
+            return [slug, status] as const;
+          } catch {
+            return [slug, { ok: true, status: 'unknown', checkedAt: new Date().toISOString() } as StreamStatusResponse] as const;
+          }
+        })
+      );
+
+      if (cancelled) return;
+      setStreamStatusBySlug((prev) => ({ ...prev, ...Object.fromEntries(entries) }));
+    };
+
+    refresh();
+    const interval = setInterval(refresh, 60_000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -216,9 +250,17 @@ export default function Home() {
           {filtered.map((stream) => {
             const thumb = stream.thumbnailUrl || youtubeThumbnailUrl(stream.youtube.url);
             const to = `/v/${encodeURIComponent(stream.slug)}`;
+            const requiresLiveCheck = isYouTubeChannelId(stream.youtube.url);
+            const status = streamStatusBySlug[stream.slug];
+            const isLive = status?.ok && status.status === 'live';
+            const isDisabled =
+              requiresLiveCheck && status?.ok && (status.status === 'offline' || status.status === 'unconfigured');
 
-            return (
-              <Link key={stream.id} to={to} className="stream-card">
+            const showOfflineBadge = requiresLiveCheck && status?.ok && (status.status === 'offline' || status.status === 'unconfigured');
+            const showCheckingBadge = requiresLiveCheck && (!status || (status.ok && status.status === 'unknown'));
+
+            const CardInner = (
+              <>
                 <div className="stream-thumb">
                   {thumb ? (
                     <img src={thumb} alt="" loading="lazy" />
@@ -226,7 +268,9 @@ export default function Home() {
                     <div className="stream-thumb-fallback">YouTube</div>
                   )}
                   <div className="stream-badges">
-                    <span className="badge badge-live">LIVE</span>
+                    {(!requiresLiveCheck || isLive) && <span className="badge badge-live">LIVE</span>}
+                    {showOfflineBadge && <span className="badge badge-offline">OFFLINE</span>}
+                    {!showOfflineBadge && showCheckingBadge && <span className="badge badge-checking">CHECKING</span>}
                     <span className="badge badge-platform">YouTube</span>
                   </div>
                 </div>
@@ -245,6 +289,20 @@ export default function Home() {
                     </div>
                   )}
                 </div>
+              </>
+            );
+
+            if (isDisabled) {
+              return (
+                <div key={stream.id} className="stream-card stream-card-disabled" aria-disabled="true">
+                  {CardInner}
+                </div>
+              );
+            }
+
+            return (
+              <Link key={stream.id} to={to} className="stream-card">
+                {CardInner}
               </Link>
             );
           })}

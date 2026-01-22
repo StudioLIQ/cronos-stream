@@ -146,7 +146,10 @@ export const FEATURED_STREAMS: FeaturedStream[] = [
     slug: 'nbc-news-now',
     title: 'NBC News NOW — Live',
     creatorName: 'NBC News',
-    youtube: { url: 'https://www.youtube.com/watch?v=0OHUTcdWRLk' },
+    // Use channel ID for a stable "currently live" embed. Individual live video IDs rotate frequently.
+    youtube: { url: 'UCeY0bbntWzzVIaj2z3QigXg' },
+    thumbnailUrl:
+      'https://yt3.googleusercontent.com/PJj5jtuEOi5UmkFy4IBonj5WcabNcnJAIJe-jZMd1ArwIuVyQxFH_2zryBHwvfv6mJujwRpWDCM=s900-c-k-c0x00ffffff-no-rj',
     category: 'News',
     tags: ['news', 'live', 'us'],
   },
@@ -155,7 +158,10 @@ export const FEATURED_STREAMS: FeaturedStream[] = [
     slug: 'livenow-fox',
     title: 'LiveNOW from FOX — Live',
     creatorName: 'LiveNOW from FOX',
-    youtube: { url: 'https://www.youtube.com/watch?v=t6wqvEGW7xU' },
+    // Use channel ID for a stable "currently live" embed. Individual live video IDs rotate frequently.
+    youtube: { url: 'UCJg9wBPyKMNA5sRDnvzmkdg' },
+    thumbnailUrl:
+      'https://yt3.googleusercontent.com/AqzY5ePezRAQ2136-TbM_88d43JfIovkzztge92WKQ4K_ISfJMFA9yuX0Nw87DLWms4W9r2c3Q=s900-c-k-c0x00ffffff-no-rj',
     category: 'News',
     tags: ['news', 'live', 'us'],
   },
@@ -164,7 +170,10 @@ export const FEATURED_STREAMS: FeaturedStream[] = [
     slug: 'scripps-news',
     title: 'Scripps News — Live',
     creatorName: 'Scripps News',
-    youtube: { url: 'https://www.youtube.com/watch?v=fMUoLkY1SxQ' },
+    // Use channel ID for a stable "currently live" embed. Individual live video IDs rotate frequently.
+    youtube: { url: 'UCTln5ss6h6L_xNfMeujfPbg' },
+    thumbnailUrl:
+      'https://yt3.googleusercontent.com/wg1BjOZhlFgcMUGA5L4GxXqWIIGiq0ApMXloy0GAiGpmuKb2qoZUfy0Ma7fZk-YyoGDn11963ug=s900-c-k-c0x00ffffff-no-rj',
     category: 'News',
     tags: ['news', 'live', 'us'],
   },
@@ -173,7 +182,10 @@ export const FEATURED_STREAMS: FeaturedStream[] = [
     slug: 'fox-weather',
     title: 'FOX Weather — Live',
     creatorName: 'FOX Weather',
-    youtube: { url: 'https://www.youtube.com/watch?v=bIRkeTyn-9c' },
+    // Use channel ID for a stable "currently live" embed. Individual live video IDs rotate frequently.
+    youtube: { url: 'UC1FbPiXx59_ltnFVx7IxWow' },
+    thumbnailUrl:
+      'https://yt3.googleusercontent.com/FHKYcMhA4RzdNNTMU1Jxqi_UPWZns3f5rgVjHXHUi_STHQ-MuoGlGoHUccsVkFZnTbIBEX90=s900-c-k-c0x00ffffff-no-rj',
     category: 'Weather',
     tags: ['weather', 'live'],
   },
@@ -182,7 +194,10 @@ export const FEATURED_STREAMS: FeaturedStream[] = [
     slug: 'weather-channel',
     title: 'The Weather Channel — Live',
     creatorName: 'The Weather Channel',
-    youtube: { url: 'https://www.youtube.com/watch?v=hTwKbl-s7MQ' },
+    // Use channel ID for a stable "currently live" embed. Individual live video IDs rotate frequently.
+    youtube: { url: 'UCGTUbwceCMibvpbd2NaIP7A' },
+    thumbnailUrl:
+      'https://yt3.googleusercontent.com/ytc/AIdro_nVhPIkoYpcXAF5A1vpH3x1P1BYA8bgDjwL55WfDj2y_ota=s900-c-k-c0x00ffffff-no-rj',
     category: 'Weather',
     tags: ['weather', 'live'],
   },
@@ -200,7 +215,10 @@ export const FEATURED_STREAMS: FeaturedStream[] = [
     slug: 'kbs-world',
     title: 'KBS WORLD TV — Live',
     creatorName: 'KBS WORLD TV',
-    youtube: { url: 'https://www.youtube.com/watch?v=26WlVAcPk2w' },
+    // Use channel ID for a stable "currently live" embed. Individual live video IDs rotate frequently.
+    youtube: { url: 'UC5BMQOsAB8hKUyHu9KI6yig' },
+    thumbnailUrl:
+      'https://yt3.googleusercontent.com/ytc/AIdro_kWAyYX8IuruW0YuQuEK6Jn-cfqZZ8oFZCcpy7HnzB3C_FA=s900-c-k-c0x00ffffff-no-rj',
     category: 'Korea',
     tags: ['korea', 'news', 'live'],
   },

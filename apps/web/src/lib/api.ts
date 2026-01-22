@@ -8,6 +8,20 @@ export interface Channel {
   streamEmbedUrl?: string | null;
 }
 
+export type StreamStatusResponse =
+  | { ok: true; status: 'unconfigured'; checkedAt: string }
+  | {
+      ok: true;
+      status: 'live';
+      platform: 'youtube';
+      checkedAt: string;
+      videoId: string;
+      embedUrl: string;
+    }
+  | { ok: true; status: 'offline'; platform: 'youtube'; checkedAt: string; reason: string }
+  | { ok: true; status: 'unknown'; checkedAt: string }
+  | { ok: false; checkedAt: string; error: string };
+
 export interface Action {
   actionKey: string;
   type: 'sticker' | 'sound' | 'flash';
@@ -55,6 +69,18 @@ export async function fetchChannel(slug: string): Promise<Channel> {
   const res = await fetch(`${API_BASE}/channels/${slug}`);
   if (!res.ok) throw new Error('Channel not found');
   return res.json();
+}
+
+export async function fetchStreamStatus(slug: string): Promise<StreamStatusResponse> {
+  const res = await fetch(`${API_BASE}/channels/${slug}/stream/status`);
+  const data = (await res.json()) as StreamStatusResponse;
+  if (!res.ok) {
+    const error = (data && typeof data === 'object' && 'error' in data && typeof data.error === 'string')
+      ? data.error
+      : 'Failed to fetch stream status';
+    throw new Error(error);
+  }
+  return data;
 }
 
 export async function fetchActions(slug: string): Promise<Action[]> {

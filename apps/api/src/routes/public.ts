@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { queryOne, queryAll } from '../db/db.js';
 import { config } from '../config.js';
 import { NETWORKS } from '../x402/constants.js';
+import { checkYouTubeChannelLive } from '../lib/youtubeLive.js';
 
 const router = Router();
 
@@ -362,6 +363,71 @@ router.get('/channels/:slug/goals/active', async (req, res, next) => {
         endsAt: g.endsAt,
       })),
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/channels/:slug/stream/status - Best-effort stream status (used by web UI)
+router.get('/channels/:slug/stream/status', async (req, res, next) => {
+  try {
+    const { slug } = req.params;
+    const checkedAt = new Date().toISOString();
+
+    const channel = await queryOne<Pick<ChannelRow, 'streamEmbedUrl'>>(
+      'SELECT streamEmbedUrl FROM channels WHERE slug = ?',
+      [slug]
+    );
+
+    if (!channel) {
+      res.status(404).json({ ok: false, checkedAt, error: 'Channel not found' });
+      return;
+    }
+
+    const embed = (channel.streamEmbedUrl || '').trim();
+    if (!embed) {
+      res.json({ ok: true, status: 'unconfigured', checkedAt });
+      return;
+    }
+
+    let url: URL | null = null;
+    try {
+      url = new URL(embed);
+    } catch {
+      url = null;
+    }
+
+    // Only do expensive checks for YouTube "currently live" embeds.
+    // Example: https://www.youtube.com/embed/live_stream?channel=UC...
+    const isYouTubeHost =
+      url && (url.hostname === 'www.youtube.com' || url.hostname === 'youtube.com' || url.hostname.endsWith('.youtube.com'));
+
+    if (url && isYouTubeHost && url.pathname === '/embed/live_stream') {
+      const channelId = url.searchParams.get('channel') || '';
+      const liveResult = await checkYouTubeChannelLive(channelId);
+
+      if (!liveResult.ok) {
+        res.status(502).json({ ok: false, checkedAt, error: liveResult.error });
+        return;
+      }
+
+      if (!liveResult.isLive) {
+        res.json({ ok: true, status: 'offline', platform: 'youtube', checkedAt, reason: liveResult.reason });
+        return;
+      }
+
+      res.json({
+        ok: true,
+        status: 'live',
+        platform: 'youtube',
+        checkedAt,
+        videoId: liveResult.videoId,
+        embedUrl: `https://www.youtube.com/embed/${encodeURIComponent(liveResult.videoId)}`,
+      });
+      return;
+    }
+
+    res.json({ ok: true, status: 'unknown', checkedAt });
   } catch (err) {
     next(err);
   }

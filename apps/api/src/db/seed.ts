@@ -95,27 +95,32 @@ function buildSeedChannels(): SeedChannel[] {
     {
       slug: 'nbc-news-now',
       displayName: 'NBC News',
-      streamEmbedUrl: toYouTubeEmbedUrl('https://www.youtube.com/watch?v=0OHUTcdWRLk'),
+      // Use channel ID for a stable "currently live" embed. Individual NBC News live video IDs rotate frequently.
+      streamEmbedUrl: toYouTubeEmbedUrl('UCeY0bbntWzzVIaj2z3QigXg'),
     },
     {
       slug: 'livenow-fox',
       displayName: 'LiveNOW from FOX',
-      streamEmbedUrl: toYouTubeEmbedUrl('https://www.youtube.com/watch?v=t6wqvEGW7xU'),
+      // Use channel ID for a stable "currently live" embed. Individual LiveNOW live video IDs rotate frequently.
+      streamEmbedUrl: toYouTubeEmbedUrl('UCJg9wBPyKMNA5sRDnvzmkdg'),
     },
     {
       slug: 'scripps-news',
       displayName: 'Scripps News',
-      streamEmbedUrl: toYouTubeEmbedUrl('https://www.youtube.com/watch?v=fMUoLkY1SxQ'),
+      // Use channel ID for a stable "currently live" embed. Individual Scripps News live video IDs rotate frequently.
+      streamEmbedUrl: toYouTubeEmbedUrl('UCTln5ss6h6L_xNfMeujfPbg'),
     },
     {
       slug: 'fox-weather',
       displayName: 'FOX Weather',
-      streamEmbedUrl: toYouTubeEmbedUrl('https://www.youtube.com/watch?v=bIRkeTyn-9c'),
+      // Use channel ID for a stable "currently live" embed. Individual FOX Weather live video IDs rotate frequently.
+      streamEmbedUrl: toYouTubeEmbedUrl('UC1FbPiXx59_ltnFVx7IxWow'),
     },
     {
       slug: 'weather-channel',
       displayName: 'The Weather Channel',
-      streamEmbedUrl: toYouTubeEmbedUrl('https://www.youtube.com/watch?v=hTwKbl-s7MQ'),
+      // Use channel ID for a stable "currently live" embed.
+      streamEmbedUrl: toYouTubeEmbedUrl('UCGTUbwceCMibvpbd2NaIP7A'),
     },
     {
       slug: 'nhk-world-japan',
@@ -125,7 +130,8 @@ function buildSeedChannels(): SeedChannel[] {
     {
       slug: 'kbs-world',
       displayName: 'KBS WORLD TV',
-      streamEmbedUrl: toYouTubeEmbedUrl('https://www.youtube.com/watch?v=26WlVAcPk2w'),
+      // Use channel ID for a stable "currently live" embed. Individual KBS WORLD live video IDs rotate frequently.
+      streamEmbedUrl: toYouTubeEmbedUrl('UC5BMQOsAB8hKUyHu9KI6yig'),
     },
     {
       slug: 'arirang-tv',
@@ -265,10 +271,25 @@ export async function seed(): Promise<void> {
   logger.info('Seeding channels (ensuring required slugs exist)...', { count: seedChannels.length });
 
   const createdSlugs: string[] = [];
+  const updatedSlugs: string[] = [];
+
+  // Legacy embeds that are known to be broken (YouTube playabilityStatus=ERROR).
+  const LEGACY_BROKEN_YOUTUBE_VIDEO_IDS_BY_SLUG: Partial<Record<string, string[]>> = {
+    'nbc-news-now': ['0OHUTcdWRLk'],
+    'livenow-fox': ['t6wqvEGW7xU'],
+    'scripps-news': ['fMUoLkY1SxQ'],
+    'fox-weather': ['bIRkeTyn-9c'],
+    'weather-channel': ['hTwKbl-s7MQ'],
+    'kbs-world': ['26WlVAcPk2w'],
+  };
 
   await transaction(async (conn) => {
     for (const ch of seedChannels) {
-      const existing = await queryOne<Channel>('SELECT id, slug FROM channels WHERE slug = ?', [ch.slug], conn);
+      const existing = await queryOne<Channel & { streamEmbedUrl: string | null }>(
+        'SELECT id, slug, streamEmbedUrl FROM channels WHERE slug = ?',
+        [ch.slug],
+        conn
+      );
 
       const channelId = existing?.id || uuid();
 
@@ -280,6 +301,15 @@ export async function seed(): Promise<void> {
           conn
         );
         createdSlugs.push(ch.slug);
+      } else if (ch.streamEmbedUrl) {
+        const legacyIds = LEGACY_BROKEN_YOUTUBE_VIDEO_IDS_BY_SLUG[ch.slug] || [];
+        if (
+          legacyIds.length > 0 &&
+          (existing.streamEmbedUrl === null || legacyIds.some((id) => existing.streamEmbedUrl?.includes(id)))
+        ) {
+          await execute('UPDATE channels SET streamEmbedUrl = ? WHERE id = ?', [ch.streamEmbedUrl, channelId], conn);
+          updatedSlugs.push(ch.slug);
+        }
       }
 
       await ensureDefaultActions(channelId, conn);
@@ -291,5 +321,9 @@ export async function seed(): Promise<void> {
     logger.info('Seed complete (added channels)', { created: createdSlugs });
   } else {
     logger.info('Seed complete (no new channels)');
+  }
+
+  if (updatedSlugs.length > 0) {
+    logger.info('Seed complete (updated channels)', { updated: updatedSlugs });
   }
 }

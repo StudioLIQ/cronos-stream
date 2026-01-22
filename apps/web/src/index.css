@@ -269,10 +269,20 @@ input:focus, textarea:focus, select:focus {
   transition: transform 120ms ease, border-color 120ms ease;
 }
 
+.stream-card.stream-card-disabled {
+  opacity: 0.62;
+  cursor: not-allowed;
+}
+
 .stream-card:hover {
   transform: translateY(-2px);
   border-color: var(--accent-border);
   text-decoration: none;
+}
+
+.stream-card.stream-card-disabled:hover {
+  transform: none;
+  border-color: var(--border);
 }
 
 .stream-thumb {
@@ -321,6 +331,16 @@ input:focus, textarea:focus, select:focus {
 .badge-live {
   background: var(--badge-live-bg);
   border-color: var(--badge-live-border);
+}
+
+.badge-offline {
+  background: rgba(224, 32, 32, 0.18);
+  border-color: rgba(224, 32, 32, 0.35);
+}
+
+.badge-checking {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.14);
 }
 
 .badge-platform {

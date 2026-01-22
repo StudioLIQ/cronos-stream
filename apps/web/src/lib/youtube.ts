@@ -1,6 +1,14 @@
 const YOUTUBE_CHANNEL_ID_RE = /^UC[a-zA-Z0-9_-]{20,}$/;
 const YOUTUBE_VIDEO_ID_RE = /^[a-zA-Z0-9_-]{11}$/;
 
+export function isYouTubeChannelId(input: string): boolean {
+  return YOUTUBE_CHANNEL_ID_RE.test(input.trim());
+}
+
+export function isYouTubeVideoId(input: string): boolean {
+  return YOUTUBE_VIDEO_ID_RE.test(input.trim());
+}
+
 function parseUrlLoose(input: string): URL | null {
   try {
     return new URL(input);
