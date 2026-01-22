@@ -356,6 +356,35 @@ export async function fetchMySupports(
   return res.json();
 }
 
+export interface ProfileSupportItem extends SupportItem {
+  channelSlug: string;
+  channelDisplayName: string;
+  membershipPlanId: string | null;
+  membershipPlanName: string | null;
+}
+
+export interface ProfileSupportsResponse {
+  items: ProfileSupportItem[];
+  nextCursor: string | null;
+}
+
+export async function fetchProfileSupports(
+  address: string,
+  options: FetchSupportsOptions = {}
+): Promise<ProfileSupportsResponse> {
+  const { limit = 20, cursor, kind } = options;
+
+  const params = new URLSearchParams();
+  params.set('address', address.toLowerCase());
+  params.set('limit', String(limit));
+  if (cursor) params.set('cursor', cursor);
+  if (kind) params.set('kind', kind);
+
+  const res = await fetch(`${API_BASE}/profile/supports?${params.toString()}`);
+  if (!res.ok) throw new Error('Failed to fetch supports');
+  return res.json();
+}
+
 // Payment Receipt types and functions
 
 export interface PaymentReceipt {

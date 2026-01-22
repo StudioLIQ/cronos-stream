@@ -47,17 +47,24 @@ export function CommandPalette() {
       action: () => navigate(`/o/${currentSlug}`),
       category: 'navigation',
     },
-    {
-      id: 'dashboard',
-      label: 'Go to Dashboard',
-      shortcut: 'G D',
-      action: () => navigate('/d'),
-      category: 'navigation',
-    },
-    // Settings
-    {
-      id: 'toggle-theme',
-      label: `Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`,
+	    {
+	      id: 'dashboard',
+	      label: 'Go to Dashboard',
+	      shortcut: 'G D',
+	      action: () => navigate('/d'),
+	      category: 'navigation',
+	    },
+	    {
+	      id: 'me',
+	      label: 'Go to My Page',
+	      shortcut: 'G M',
+	      action: () => navigate('/me'),
+	      category: 'navigation',
+	    },
+	    // Settings
+	    {
+	      id: 'toggle-theme',
+	      label: `Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`,
       shortcut: 'T',
       action: toggleTheme,
       category: 'settings',

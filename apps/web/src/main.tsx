@@ -5,6 +5,7 @@ import Home from './routes/Home';
 import Viewer from './routes/Viewer';
 import Overlay from './routes/Overlay';
 import Dashboard from './routes/Dashboard';
+import Me from './routes/Me';
 import { ToastProvider, ToastHost } from './components/Toast';
 import { StatusBar } from './components/StatusBar';
 import { ThemeProvider } from './contexts/ThemeContext';
@@ -47,14 +48,15 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <ToastProvider>
         <WalletProvider>
           <BrowserRouter>
-            <Routes>
-              <Route path="/" element={<Home />} />
-              <Route path="/v/:slug" element={<Viewer />} />
-              <Route path="/o/:slug" element={<Overlay />} />
-              <Route path="/d" element={<Dashboard />} />
-              <Route path="/d/:slug" element={<Navigate to="/d" replace />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
+	            <Routes>
+	              <Route path="/" element={<Home />} />
+	              <Route path="/v/:slug" element={<Viewer />} />
+	              <Route path="/o/:slug" element={<Overlay />} />
+	              <Route path="/me" element={<Me />} />
+	              <Route path="/d" element={<Dashboard />} />
+	              <Route path="/d/:slug" element={<Navigate to="/d" replace />} />
+	              <Route path="*" element={<Navigate to="/" replace />} />
+	            </Routes>
             <ConditionalToastHost />
             <ConditionalStatusBar />
             <ConditionalCommandPalette />

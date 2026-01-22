@@ -245,22 +245,45 @@ Expires At: ${nonceData.expiresAt}`;
 	                  {walletButtonLabel} ▾
 	                </button>
 	                {isProfileMenuOpen && (
-	                  <div
-	                    ref={profileMenuRef}
-	                    className="card"
-	                    style={{
-	                      position: 'absolute',
-	                      top: 'calc(100% + 8px)',
-	                      right: 0,
-	                      width: '320px',
-	                      padding: '12px',
-	                      zIndex: 10000,
-	                    }}
-	                  >
-	                    <div style={{ fontWeight: 600, marginBottom: '8px' }}>Nickname</div>
-	                    <p style={{ margin: 0, fontSize: '12px', color: 'var(--muted)', lineHeight: 1.4 }}>
-	                      Nickname changes require a wallet signature (no payment).
-	                    </p>
+		                  <div
+		                    ref={profileMenuRef}
+		                    className="card"
+		                    style={{
+		                      position: 'absolute',
+		                      top: 'calc(100% + 8px)',
+		                      right: 0,
+		                      width: '320px',
+		                      padding: '12px',
+		                      zIndex: 10000,
+		                    }}
+		                  >
+		                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+		                      <Link
+		                        to="/me"
+		                        onClick={() => setIsProfileMenuOpen(false)}
+		                        style={{ color: 'var(--accent-text)', fontSize: '13px', textDecoration: 'none' }}
+		                      >
+		                        My Page
+		                      </Link>
+		                      <button
+		                        onClick={() => setIsProfileMenuOpen(false)}
+		                        style={{
+		                          background: 'transparent',
+		                          border: '1px solid var(--border)',
+		                          color: 'var(--muted)',
+		                          padding: '4px 8px',
+		                          fontSize: '12px',
+		                          cursor: 'pointer',
+		                        }}
+		                      >
+		                        Close
+		                      </button>
+		                    </div>
+		                    <div style={{ height: 1, background: 'var(--border)', marginBottom: '12px' }} />
+		                    <div style={{ fontWeight: 600, marginBottom: '8px' }}>Nickname</div>
+		                    <p style={{ margin: 0, fontSize: '12px', color: 'var(--muted)', lineHeight: 1.4 }}>
+		                      Nickname changes require a wallet signature (no payment).
+		                    </p>
 
 	                    <div style={{ marginTop: '12px' }}>
 	                      <label style={{ display: 'block', marginBottom: '4px', color: 'var(--muted)', fontSize: '13px' }}>

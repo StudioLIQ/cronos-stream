@@ -97,6 +97,20 @@ interface PaymentRow {
   createdAt: string;
 }
 
+interface ProfileSupportRow {
+  paymentId: string;
+  kind: string | null;
+  value: string;
+  txHash: string | null;
+  timestamp: string | null;
+  actionKey: string | null;
+  qaId: string | null;
+  membershipPlanId: string | null;
+  channelSlug: string;
+  channelDisplayName: string;
+  membershipPlanName: string | null;
+}
+
 interface MembershipPlanRow {
   id: string;
   channelId: string;
@@ -363,6 +377,104 @@ router.get('/channels/:slug/supports/me', async (req, res, next) => {
       timestamp: row.timestamp ? Number(row.timestamp) : null,
       actionKey: row.actionKey,
       qaId: row.qaId,
+    }));
+
+    let nextCursor: string | null = null;
+    if (hasMore && items.length > 0) {
+      const lastItem = items[items.length - 1];
+      if (lastItem.timestamp) {
+        nextCursor = Buffer.from(lastItem.timestamp).toString('base64');
+      }
+    }
+
+    res.json({
+      items: result,
+      nextCursor,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/profile/supports - Get wallet support history across all channels (public, requires wallet address)
+router.get('/profile/supports', async (req, res, next) => {
+  try {
+    const address = (req.query.address as string)?.toLowerCase();
+    const kind = req.query.kind as string | undefined;
+    const cursor = req.query.cursor as string | undefined;
+    const limitParam = parseInt(req.query.limit as string, 10);
+    const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 50) : 20;
+
+    if (!address || !/^0x[a-f0-9]{40}$/i.test(address)) {
+      res.status(400).json({ error: 'Missing or invalid address parameter' });
+      return;
+    }
+
+    const validKinds = ['effect', 'qa', 'donation', 'membership'];
+    if (kind && !validKinds.includes(kind)) {
+      res.status(400).json({ error: `Invalid kind. Must be one of: ${validKinds.join(', ')}` });
+      return;
+    }
+
+    const conditions: string[] = ['p.status = ?', 'p.fromAddress = ?'];
+    const params: (string | number)[] = ['settled', address];
+
+    if (kind) {
+      conditions.push('p.kind = ?');
+      params.push(kind);
+    }
+
+    if (cursor) {
+      try {
+        const cursorTimestamp = Buffer.from(cursor, 'base64').toString('utf-8');
+        conditions.push('p.timestamp < ?');
+        params.push(cursorTimestamp);
+      } catch {
+        res.status(400).json({ error: 'Invalid cursor' });
+        return;
+      }
+    }
+
+    params.push(limit + 1);
+
+    const sql = `
+      SELECT
+        p.paymentId,
+        p.kind,
+        p.value,
+        p.txHash,
+        p.timestamp,
+        p.actionKey,
+        p.qaId,
+        p.membershipPlanId,
+        c.slug as channelSlug,
+        c.displayName as channelDisplayName,
+        mp.name as membershipPlanName
+      FROM payments p
+      JOIN channels c ON p.channelId = c.id
+      LEFT JOIN membership_plans mp ON p.membershipPlanId = mp.id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY p.timestamp DESC
+      LIMIT ?
+    `;
+
+    const rows = await queryAll<ProfileSupportRow>(sql, params);
+
+    const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, limit) : rows;
+
+    const result = items.map((row) => ({
+      paymentId: row.paymentId,
+      kind: row.kind,
+      value: row.value,
+      txHash: row.txHash,
+      timestamp: row.timestamp ? Number(row.timestamp) : null,
+      actionKey: row.actionKey,
+      qaId: row.qaId,
+      membershipPlanId: row.membershipPlanId,
+      membershipPlanName: row.membershipPlanName,
+      channelSlug: row.channelSlug,
+      channelDisplayName: row.channelDisplayName,
     }));
 
     let nextCursor: string | null = null;
