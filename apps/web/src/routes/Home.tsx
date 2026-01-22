@@ -166,20 +166,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Feature Labels */}
-        <div
-          style={{
-            display: 'flex',
-            gap: '16px',
-            justifyContent: 'center',
-            marginTop: '32px',
-            flexWrap: 'wrap',
-          }}
-        >
-          <span style={{ color: 'var(--muted)', fontSize: '14px' }}>Viewer Page</span>
-          <span style={{ color: 'var(--muted)', fontSize: '14px' }}>OBS Overlay</span>
-          <span style={{ color: 'var(--muted)', fontSize: '14px' }}>Dashboard</span>
-        </div>
       </section>
 
       <main className="container" style={{ paddingTop: '24px', paddingBottom: '48px' }}>
