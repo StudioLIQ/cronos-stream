@@ -79,44 +79,9 @@ export default function Home() {
           <h1 style={{ fontSize: '36px', fontWeight: 800, marginBottom: '16px', lineHeight: 1.2 }}>
             Paid Interactions for Streamers
           </h1>
-          <p style={{ fontSize: '18px', color: 'var(--muted)', marginBottom: '32px', lineHeight: 1.6 }}>
+          <p style={{ fontSize: '18px', color: 'var(--muted)', lineHeight: 1.6 }}>
             Let viewers support you with USDC payments. Effects, Q&A, donations - all settled on-chain via x402.
           </p>
-          <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
-            <Link
-              to="/v/demo"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                padding: '14px 28px',
-                background: 'var(--primary)',
-                color: 'var(--primary-text)',
-                borderRadius: '8px',
-                fontWeight: 600,
-                fontSize: '16px',
-                textDecoration: 'none',
-              }}
-            >
-              Open Demo
-            </Link>
-            <Link
-              to="/d/demo"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                padding: '14px 28px',
-                background: 'transparent',
-                color: 'var(--text)',
-                border: '1px solid var(--border)',
-                borderRadius: '8px',
-                fontWeight: 600,
-                fontSize: '16px',
-                textDecoration: 'none',
-              }}
-            >
-              Streamer Dashboard
-            </Link>
-          </div>
         </div>
       </section>
 
