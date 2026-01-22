@@ -3,6 +3,10 @@ import './env.js';
 import { getNetworkConfig } from './x402/constants.js';
 import { logger } from './logger.js';
 
+function isNonEmpty(value: string | undefined): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
 function parseDbConfigFromUrl(databaseUrl: string): {
   host: string;
   port: number;
@@ -40,6 +44,7 @@ function getDbConfigFromRailwayMysql(): {
   user: string;
   password: string;
   database: string;
+  source: 'MYSQLHOST';
 } | null {
   // Railway MySQL plugin commonly injects these:
   // MYSQLHOST, MYSQLPORT, MYSQLUSER, MYSQLPASSWORD, MYSQLDATABASE, MYSQL_URL
@@ -55,6 +60,7 @@ function getDbConfigFromRailwayMysql(): {
     user,
     password,
     database,
+    source: 'MYSQLHOST',
   };
 }
 
@@ -64,9 +70,15 @@ function getDbConfig(): {
   user: string;
   password: string;
   database: string;
+  source: 'DATABASE_URL' | 'MYSQL_URL' | 'MYSQLHOST' | 'DB_HOST';
 } {
-  const databaseUrl = process.env.DATABASE_URL || process.env.MYSQL_URL;
-  if (databaseUrl) return parseDbConfigFromUrl(databaseUrl);
+  if (isNonEmpty(process.env.DATABASE_URL)) {
+    return { ...parseDbConfigFromUrl(process.env.DATABASE_URL.trim()), source: 'DATABASE_URL' };
+  }
+
+  if (isNonEmpty(process.env.MYSQL_URL)) {
+    return { ...parseDbConfigFromUrl(process.env.MYSQL_URL.trim()), source: 'MYSQL_URL' };
+  }
 
   const railwayMysql = getDbConfigFromRailwayMysql();
   if (railwayMysql) return railwayMysql;
@@ -77,6 +89,7 @@ function getDbConfig(): {
     user: process.env.DB_USER || 'stream402',
     password: process.env.DB_PASSWORD || 'stream402',
     database: process.env.DB_NAME || 'stream402',
+    source: 'DB_HOST',
   };
 }
 
@@ -108,12 +121,26 @@ export function logConfig(): void {
 
   logger.info('Configuration loaded:');
   logger.info(`  API Port: ${config.apiPort}`);
+  logger.info(`  DB Source: ${config.db.source}`);
   logger.info(`  DB: mysql://${config.db.user}@${config.db.host}:${config.db.port}/${config.db.database}`);
   logger.info(`  Network: ${config.defaultNetwork}`);
   logger.info(`  Chain ID: ${networkConfig.chainId}`);
   logger.info(`  USDC.e: ${networkConfig.usdcAddress}`);
   logger.info(`  Seller Wallet: ${config.sellerWallet}`);
   logger.info(`  Membership NFT: ${membershipNftAddress || '(not configured)'}`);
+
+  const envHints = {
+    DATABASE_URL: isNonEmpty(process.env.DATABASE_URL) ? 'set' : 'unset',
+    MYSQL_URL: isNonEmpty(process.env.MYSQL_URL) ? 'set' : 'unset',
+    MYSQLHOST: isNonEmpty(process.env.MYSQLHOST) ? 'set' : 'unset',
+    DB_HOST: isNonEmpty(process.env.DB_HOST) ? 'set' : 'unset',
+    ENV_FILE: isNonEmpty(process.env.ENV_FILE) ? 'set' : 'unset',
+  };
+  logger.info('  Env hints:', envHints);
+
+  if (config.db.source === 'DB_HOST' && (isNonEmpty(process.env.PORT) || process.env.NODE_ENV === 'production')) {
+    logger.warn('No Railway/MySQL env detected; falling back to DB_HOST/DB_PORT defaults (127.0.0.1:3307).');
+  }
 
   if (config.sellerWallet === '0x0000000000000000000000000000000000000000') {
     logger.warn('SELLER_WALLET not set - using zero address');
