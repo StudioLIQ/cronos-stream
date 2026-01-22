@@ -6,6 +6,12 @@ import { EmptyState } from '../components/EmptyState';
 import { API_BASE } from '../lib/config';
 import { copyToClipboard } from '../lib/clipboard';
 import { formatUsdcAmount } from '../lib/x402';
+import {
+  buildDashboardAuthHeaders,
+  clearStoredDashboardToken,
+  getStoredDashboardToken,
+  storeDashboardToken,
+} from '../lib/dashboardAuth';
 
 type ChannelOverview = {
   slug: string;
@@ -49,18 +55,31 @@ function formatUnixSeconds(ts: number | null): string {
 
 export default function Dashboard() {
   const { addToast } = useToasts();
+  const [dashboardToken, setDashboardToken] = useState<string | null>(() => getStoredDashboardToken());
+  const [tokenInput, setTokenInput] = useState(() => getStoredDashboardToken() ?? '');
   const [data, setData] = useState<DashboardOverviewResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
 
   const fetchOverview = useCallback(async () => {
+    if (!dashboardToken) {
+      setData(null);
+      setError(null);
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
     try {
-      const res = await fetch(`${API_BASE}/dashboard/overview`);
+      const res = await fetch(`${API_BASE}/dashboard/overview`, {
+        headers: buildDashboardAuthHeaders(dashboardToken),
+      });
       if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          throw new Error('Dashboard token is missing or invalid.');
+        }
         throw new Error(`Failed to load dashboard overview (${res.status})`);
       }
       const json = (await res.json()) as DashboardOverviewResponse;
@@ -70,14 +89,14 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [dashboardToken]);
 
   useEffect(() => {
     fetchOverview();
   }, [fetchOverview]);
 
   useEffect(() => {
-    if (!autoRefresh) return;
+    if (!autoRefresh || !dashboardToken) return;
     const id = window.setInterval(fetchOverview, 15_000);
     return () => window.clearInterval(id);
   }, [autoRefresh, fetchOverview]);
@@ -95,6 +114,26 @@ export default function Dashboard() {
   const handleCopyAddress = async (address: string) => {
     const ok = await copyToClipboard(address);
     addToast(ok ? 'Copied wallet address' : 'Failed to copy wallet address', ok ? 'success' : 'error');
+  };
+
+  const handleSaveToken = () => {
+    const trimmed = tokenInput.trim();
+    if (!trimmed) {
+      addToast('Enter a dashboard token', 'warning');
+      return;
+    }
+    storeDashboardToken(trimmed);
+    setDashboardToken(trimmed);
+    addToast('Dashboard token saved', 'success');
+  };
+
+  const handleClearToken = () => {
+    clearStoredDashboardToken();
+    setDashboardToken(null);
+    setTokenInput('');
+    setData(null);
+    setError(null);
+    addToast('Dashboard token cleared', 'info');
   };
 
   return (
@@ -120,10 +159,46 @@ export default function Dashboard() {
             </label>
             <button
               onClick={fetchOverview}
-              disabled={loading}
+              disabled={loading || !dashboardToken}
               style={{ background: 'var(--primary)', color: 'var(--primary-text)' }}
             >
               {loading ? 'Refreshing…' : 'Refresh'}
+            </button>
+          </div>
+        </div>
+
+        <div className="card" style={{ marginBottom: '16px' }}>
+          <div style={{ fontWeight: 800 }}>Dashboard token</div>
+          <div style={{ marginTop: '6px', color: 'var(--muted)', fontSize: '13px' }}>
+            Required for streamer/admin endpoints. Stored in your browser (localStorage). Default: <code>demo-token</code>
+          </div>
+          <div style={{ marginTop: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <input
+              type="password"
+              value={tokenInput}
+              onChange={(e) => setTokenInput(e.target.value)}
+              placeholder="demo-token"
+              style={{
+                flex: 1,
+                minWidth: '220px',
+                padding: '10px 12px',
+                background: 'var(--panel-2)',
+                border: '1px solid var(--border)',
+                borderRadius: '8px',
+                color: 'var(--text)',
+              }}
+            />
+            <button
+              onClick={handleSaveToken}
+              style={{ background: 'var(--primary)', color: 'var(--primary-text)' }}
+            >
+              Save
+            </button>
+            <button
+              onClick={handleClearToken}
+              style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--muted)' }}
+            >
+              Clear
             </button>
           </div>
         </div>
@@ -226,6 +301,9 @@ export default function Dashboard() {
                           <Link to={`/o/${encodeURIComponent(ch.slug)}`} style={{ color: 'var(--accent-text)', fontSize: '13px' }}>
                             Overlay
                           </Link>
+                          <Link to={`/d/${encodeURIComponent(ch.slug)}/supports`} style={{ color: 'var(--accent-text)', fontSize: '13px' }}>
+                            Supports
+                          </Link>
                         </div>
                       </td>
                     </tr>
@@ -239,4 +317,3 @@ export default function Dashboard() {
     </>
   );
 }
-

@@ -54,6 +54,13 @@ export function CommandPalette() {
 	      action: () => navigate('/d'),
 	      category: 'navigation',
 	    },
+      {
+        id: 'supports',
+        label: `Go to Supports (${currentSlug})`,
+        shortcut: 'G S',
+        action: () => navigate(`/d/${currentSlug}/supports`),
+        category: 'navigation',
+      },
 	    {
 	      id: 'me',
 	      label: 'Go to My Page',

@@ -285,7 +285,7 @@ export default function Me() {
                                       {receiptData.txHash.slice(0, 10)}...
                                     </a>
                                     <button
-                                      onClick={() => handleCopyTxHash(receiptData.txHash)}
+                                      onClick={() => handleCopyTxHash(receiptData.txHash!)}
                                       style={{
                                         marginLeft: '8px',
                                         background: 'transparent',
