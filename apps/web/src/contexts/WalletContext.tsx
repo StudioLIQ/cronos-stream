@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 import type { JsonRpcSigner } from 'ethers';
-import { connectWallet, getWalletState, switchToCronosTestnet } from '../lib/wallet';
+import { connectWallet, disconnectWallet, getWalletState, switchToCronosTestnet } from '../lib/wallet';
 
 interface WalletContextValue {
   address: string | null;
@@ -36,6 +36,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }, [isConnecting]);
 
   const clear = useCallback(() => {
+    disconnectWallet();
     setAddress(null);
     setSigner(null);
     setChainId(null);
@@ -64,4 +65,3 @@ export function useWallet() {
   }
   return context;
 }
-

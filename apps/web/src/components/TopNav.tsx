@@ -8,7 +8,7 @@ import { formatUsdcAmount } from '../lib/x402';
 import { fetchUsdcBalanceBaseUnits, getUsdcAddress } from '../lib/usdc';
 
 export function TopNav({ children }: { children?: ReactNode }) {
-  const { address, signer, chainId, isConnected, isConnecting, connect } = useWallet();
+  const { address, signer, chainId, isConnected, isConnecting, connect, clear } = useWallet();
   const { addToast } = useToasts();
 
   const usdcAddress = useMemo(() => getUsdcAddress(chainId), [chainId]);
@@ -70,6 +70,11 @@ export function TopNav({ children }: { children?: ReactNode }) {
     addToast(ok ? 'Wallet address copied' : 'Failed to copy wallet address', ok ? 'success' : 'error');
   };
 
+  const handleDisconnect = () => {
+    clear();
+    addToast('Wallet disconnected', 'info');
+  };
+
   return (
     <header className="topbar">
       <div className="topbar-inner">
@@ -122,6 +127,20 @@ export function TopNav({ children }: { children?: ReactNode }) {
                 }}
               >
                 {address?.slice(0, 6)}...{address?.slice(-4)}
+              </button>
+              <button
+                onClick={handleDisconnect}
+                title="Disconnect wallet"
+                style={{
+                  background: 'transparent',
+                  border: '1px solid var(--border)',
+                  padding: '8px 12px',
+                  borderRadius: '999px',
+                  fontSize: '13px',
+                  color: 'var(--muted)',
+                }}
+              >
+                Disconnect
               </button>
             </>
           )}

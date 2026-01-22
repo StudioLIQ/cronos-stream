@@ -41,6 +41,14 @@ export function getWalletState(): WalletState {
   return state;
 }
 
+export function disconnectWallet(): void {
+  state = {
+    address: null,
+    signer: null,
+    chainId: null,
+  };
+}
+
 export function getSigner(): JsonRpcSigner | null {
   return state.signer;
 }
