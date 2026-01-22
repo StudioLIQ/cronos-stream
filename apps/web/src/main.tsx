@@ -8,6 +8,7 @@ import Dashboard from './routes/Dashboard';
 import { ToastProvider, ToastHost } from './components/Toast';
 import { StatusBar } from './components/StatusBar';
 import { ThemeProvider } from './contexts/ThemeContext';
+import { CommandPalette } from './components/CommandPalette';
 import './index.css';
 
 function ConditionalToastHost() {
@@ -28,6 +29,15 @@ function ConditionalStatusBar() {
   return <StatusBar />;
 }
 
+function ConditionalCommandPalette() {
+  const location = useLocation();
+  // Don't render command palette on the overlay page (OBS browser source)
+  if (location.pathname.startsWith('/o/')) {
+    return null;
+  }
+  return <CommandPalette />;
+}
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ThemeProvider>
@@ -42,6 +52,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           </Routes>
           <ConditionalToastHost />
           <ConditionalStatusBar />
+          <ConditionalCommandPalette />
         </BrowserRouter>
       </ToastProvider>
     </ThemeProvider>
