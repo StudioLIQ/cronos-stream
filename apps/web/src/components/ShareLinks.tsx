@@ -12,7 +12,6 @@ export function ShareLinks({ slug }: ShareLinksProps) {
 
   const baseUrl = window.location.origin;
   const viewerUrl = `${baseUrl}/v/${slug}`;
-  const overlayUrl = `${baseUrl}/o/${slug}`;
 
   const handleCopy = async (url: string, label: string) => {
     const success = await copyToClipboard(url);
@@ -62,44 +61,6 @@ export function ShareLinks({ slug }: ShareLinksProps) {
             }}
           >
             {copiedLink === 'viewer' ? 'Copied!' : 'Copy'}
-          </button>
-        </div>
-
-        {/* Overlay Link */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '10px 12px',
-            background: 'var(--panel-2)',
-            borderRadius: '8px',
-          }}
-        >
-          <span style={{ fontSize: '14px', color: 'var(--muted)', minWidth: '60px' }}>Overlay:</span>
-          <code
-            style={{
-              flex: 1,
-              fontSize: '13px',
-              color: 'var(--accent-text)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            /o/{slug}
-          </code>
-          <button
-            onClick={() => handleCopy(overlayUrl, 'overlay')}
-            style={{
-              background: copiedLink === 'overlay' ? '#5cbffb' : 'var(--primary)',
-              color: 'var(--primary-text)',
-              fontSize: '12px',
-              padding: '6px 12px',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {copiedLink === 'overlay' ? 'Copied!' : 'Copy'}
           </button>
         </div>
       </div>

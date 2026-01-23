@@ -202,7 +202,6 @@ export default function ChannelSupports() {
 	            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
 	              <Link to="/dashboard" style={{ color: 'var(--accent-text)', fontSize: '13px' }}>Dashboard</Link>
 	              <Link to={`/v/${encodeURIComponent(slug)}`} style={{ color: 'var(--accent-text)', fontSize: '13px' }}>Viewer</Link>
-	              <Link to={`/o/${encodeURIComponent(slug)}`} style={{ color: 'var(--accent-text)', fontSize: '13px' }}>Overlay</Link>
 	            </div>
 	          )}
         </div>

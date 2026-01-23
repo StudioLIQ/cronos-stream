@@ -232,9 +232,6 @@ export default function Dashboard() {
                           <Link to={`/v/${encodeURIComponent(ch.slug)}`} style={{ color: 'var(--accent-text)', fontSize: '13px' }}>
                             Viewer
                           </Link>
-	                          <Link to={`/o/${encodeURIComponent(ch.slug)}`} style={{ color: 'var(--accent-text)', fontSize: '13px' }}>
-	                            Overlay
-	                          </Link>
 	                        </div>
 	                      </td>
 	                    </tr>

@@ -41,13 +41,6 @@ export function CommandPalette() {
       category: 'navigation',
     },
 	    {
-	      id: 'overlay',
-	      label: `Go to Overlay (${currentSlug})`,
-	      shortcut: 'G O',
-	      action: () => navigate(`/o/${currentSlug}`),
-	      category: 'navigation',
-	    },
-	    {
 	      id: 'dashboard',
 	      label: 'Go to Dashboard',
 	      shortcut: 'G D',
@@ -68,14 +61,6 @@ export function CommandPalette() {
       label: 'Copy Viewer URL',
       action: () => {
         navigator.clipboard.writeText(`${window.location.origin}/v/${currentSlug}`);
-      },
-      category: 'actions',
-    },
-    {
-      id: 'copy-overlay-url',
-      label: 'Copy Overlay URL',
-      action: () => {
-        navigator.clipboard.writeText(`${window.location.origin}/o/${currentSlug}`);
       },
       category: 'actions',
     },

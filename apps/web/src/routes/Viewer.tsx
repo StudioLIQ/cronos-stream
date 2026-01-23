@@ -7,7 +7,6 @@ import {
   fetchStreamStatus,
   triggerAction,
   donate,
-  submitQA,
   is402Response,
   fetchMembershipPlans,
   fetchMembershipStatus,
@@ -41,7 +40,6 @@ import { useWallet } from '../contexts/WalletContext';
 import { formatWalletSignatureError } from '../lib/walletErrors';
 
 type PaymentState = 'idle' | 'needs_payment' | 'signing' | 'settling' | 'done' | 'error';
-type SupportKind = 'donation' | 'qa';
 
 interface PaymentResult {
   txHash: string;
@@ -93,12 +91,11 @@ export default function Viewer() {
 	  const [channelWallet, setChannelWallet] = useState<ChannelWallet | null>(null);
 	  const [isChannelWalletLoading, setIsChannelWalletLoading] = useState(false);
 	  const [actions, setActions] = useState<Action[]>([]);
-	  const [streamStatus, setStreamStatus] = useState<StreamStatusResponse | null>(null);
+  const [streamStatus, setStreamStatus] = useState<StreamStatusResponse | null>(null);
 	  const [loading, setLoading] = useState(true);
 	  const [error, setError] = useState<string | null>(null);
 
-  // Support state (Donate + Q&A)
-  const [supportKind, setSupportKind] = useState<SupportKind>('donation');
+  // Support state (Donation)
   const [supportDisplayName, setSupportDisplayName] = useState('');
   const [supportMessage, setSupportMessage] = useState('');
   const [supportState, setSupportState] = useState<PaymentState>('idle');
@@ -110,14 +107,6 @@ export default function Viewer() {
   const [paymentState, setPaymentState] = useState<PaymentState>('idle');
   const [lastResult, setLastResult] = useState<PaymentResult | null>(null);
   const [activeAction, setActiveAction] = useState<string | null>(null);
-
-  const [qaTier, setQaTier] = useState<'normal' | 'priority'>('normal');
-
-  useEffect(() => {
-    setSupportState('idle');
-    setSupportResult(null);
-    setDonationAmountError(null);
-  }, [supportKind]);
 
   const handleConnectWallet = async () => {
     try {
@@ -365,35 +354,21 @@ export default function Viewer() {
     setSupportResult(null);
     setDonationAmountError(null);
 
-    const kind = supportKind;
     const displayName = supportDisplayName.trim() || null;
-    const message = supportMessage.trim();
+    const message = supportMessage.trim() || null;
 
-    let donationBaseUnits: string | null = null;
-
-    if (kind === 'donation') {
-      const parsed = parseUsdcToBaseUnits(donationAmount);
-      if (!parsed.ok) {
-        setDonationAmountError(parsed.error);
-        setSupportState('idle');
-        addToast(parsed.error, 'warning');
-        return;
-      }
-      donationBaseUnits = parsed.baseUnits;
-    }
-
-    if (kind === 'qa' && !message) {
+    const parsed = parseUsdcToBaseUnits(donationAmount);
+    if (!parsed.ok) {
+      setDonationAmountError(parsed.error);
       setSupportState('idle');
-      addToast('Please enter a question.', 'warning');
+      addToast(parsed.error, 'warning');
       return;
     }
+    const donationBaseUnits = parsed.baseUnits;
 
     try {
       // First request without payment
-      let result =
-        kind === 'donation'
-          ? await donate(slug, donationBaseUnits as string, message || null, displayName)
-          : await submitQA(slug, message, displayName, qaTier);
+      let result = await donate(slug, donationBaseUnits, message, displayName);
 
       if (is402Response(result)) {
         setSupportState('signing');
@@ -411,10 +386,7 @@ export default function Viewer() {
         addToast('Settling payment on-chain...', 'info');
 
         // Retry with payment
-        result =
-          kind === 'donation'
-            ? await donate(slug, donationBaseUnits as string, message || null, displayName, paymentHeader)
-            : await submitQA(slug, message, displayName, qaTier, paymentHeader);
+        result = await donate(slug, donationBaseUnits, message, displayName, paymentHeader);
 
         if (is402Response(result)) {
           throw new Error('Payment still required after signing');
@@ -429,7 +401,7 @@ export default function Viewer() {
       });
       setSupportState('done');
       setSupportMessage('');
-      addToast(kind === 'donation' ? 'Thank you for your donation!' : 'Question submitted successfully!', 'success');
+      addToast('Thank you for your donation!', 'success');
       fireSuccess();
       // Auto-refresh My Supports after successful payment
       refreshMySupports();
@@ -876,7 +848,7 @@ export default function Viewer() {
                 <EmptyState
                   icon="🎖️"
                   title="No membership plans"
-                  description="This channel hasn't set up membership tiers yet. You can still support them with donations and Q&A."
+                  description="This channel hasn't set up membership tiers yet. You can still support them with donations."
                 />
               </div>
             </section>
@@ -1041,7 +1013,7 @@ export default function Viewer() {
 	                <EmptyState
 	                  icon="🎬"
 	                  title="No effects available"
-	                  description="This channel hasn't set up any paid effects yet. Check back later or try the donation or Q&A features."
+	                  description="This channel hasn't set up any paid effects yet. Check back later or try donating."
 	                />
 	              </div>
 	            ) : !isWalletConnected ? (
@@ -1167,7 +1139,7 @@ export default function Viewer() {
 		              {!isWalletConnected ? (
 		                <div>
 		                  <p style={{ color: 'var(--muted)', fontSize: '14px', marginBottom: '12px' }}>
-		                    Connect your wallet to donate or ask a question.
+		                    Connect your wallet to donate.
 		                  </p>
 		                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
 		                    <div
@@ -1185,21 +1157,6 @@ export default function Viewer() {
 		                      <span style={{ fontWeight: 600 }}>Donate</span>
 		                      <span style={{ color: 'var(--muted)' }}>from $0.05</span>
 		                    </div>
-		                    <div
-		                      style={{
-		                        display: 'flex',
-		                        justifyContent: 'space-between',
-		                        alignItems: 'center',
-		                        padding: '10px 12px',
-		                        background: 'var(--panel-2)',
-		                        border: '1px solid var(--border)',
-		                        borderRadius: '8px',
-		                        fontSize: '13px',
-		                      }}
-		                    >
-		                      <span style={{ fontWeight: 600 }}>Ask a Question</span>
-		                      <span style={{ color: 'var(--muted)' }}>from $0.25</span>
-		                    </div>
 		                  </div>
 		                  <button
 		                    onClick={handleConnectWallet}
@@ -1216,41 +1173,11 @@ export default function Viewer() {
 		                </div>
 		              ) : (
 		                <>
-		                  <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-		                <button
-		                  onClick={() => setSupportKind('donation')}
-		                  disabled={supportState === 'needs_payment' || supportState === 'signing' || supportState === 'settling'}
-		                  style={{
-		                    flex: 1,
-		                    background: supportKind === 'donation' ? 'var(--primary)' : 'var(--panel-2)',
-		                    color: supportKind === 'donation' ? 'var(--primary-text)' : 'var(--text)',
-		                    border: '1px solid var(--border)',
-		                  }}
-		                >
-		                  Donate
-		                </button>
-		                <button
-		                  onClick={() => setSupportKind('qa')}
-		                  disabled={supportState === 'needs_payment' || supportState === 'signing' || supportState === 'settling'}
-		                  style={{
-		                    flex: 1,
-		                    background: supportKind === 'qa' ? 'var(--primary)' : 'var(--panel-2)',
-		                    color: supportKind === 'qa' ? 'var(--primary-text)' : 'var(--text)',
-		                    border: '1px solid var(--border)',
-		                  }}
-		                >
-		                  Ask a Question
-		                </button>
-		              </div>
-		              <p style={{ color: 'var(--muted)', fontSize: '14px', lineHeight: 1.4 }}>
-		                {supportKind === 'donation'
-		                  ? 'Donate while watching the stream. Amounts are in USDC; choose a preset or enter a custom amount.'
-		                  : 'Ask a question while watching the stream. Choose a tier; questions appear on the streamer overlay.'}
-	              </p>
+		                  <p style={{ color: 'var(--muted)', fontSize: '14px', lineHeight: 1.4 }}>
+		                    Donate while watching the stream. Amounts are in USDC; choose a preset or enter a custom amount.
+		                  </p>
 
-              {supportKind === 'donation' && (
-                <>
-              <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
+		                  <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
                 {[
                   { label: '$0.05', value: '0.05' },
                   { label: '$0.25', value: '0.25' },
@@ -1291,8 +1218,6 @@ export default function Viewer() {
 	                  </p>
 	                )}
 	              </div>
-                </>
-              )}
 
 	              <div style={{ marginTop: '12px' }}>
 	                <label style={{ display: 'block', marginBottom: '4px', color: 'var(--muted)', fontSize: '14px' }}>
@@ -1307,31 +1232,15 @@ export default function Viewer() {
                 />
 	              </div>
 
-	              {supportKind === 'qa' && (
-	                <div style={{ marginTop: '12px' }}>
-	                  <label style={{ display: 'block', marginBottom: '4px', color: 'var(--muted)', fontSize: '14px' }}>
-	                    Tier
-	                  </label>
-	                  <select
-	                    value={qaTier}
-	                    onChange={(e) => setQaTier(e.target.value as 'normal' | 'priority')}
-	                    style={{ width: '100%' }}
-	                  >
-	                    <option value="normal">Normal - $0.25 USDC</option>
-	                    <option value="priority">Priority - $0.50 USDC</option>
-	                  </select>
-	                </div>
-	              )}
-
 	              <div style={{ marginTop: '12px' }}>
 		                <label style={{ display: 'block', marginBottom: '4px', color: 'var(--muted)', fontSize: '14px' }}>
-		                  {supportKind === 'donation' ? 'Message (optional)' : 'Your Question'}
+		                  Message (optional)
 		                </label>
 	                <textarea
 	                  value={supportMessage}
 	                  onChange={(e) => setSupportMessage(e.target.value)}
-	                  placeholder={supportKind === 'donation' ? 'Say something...' : 'Type your question...'}
-	                  rows={supportKind === 'donation' ? 2 : 3}
+	                  placeholder="Say something..."
+	                  rows={2}
 	                  style={{ width: '100%', resize: 'vertical' }}
 	                />
               </div>
@@ -1342,8 +1251,7 @@ export default function Viewer() {
 		                  !isWalletConnected ||
 		                  supportState === 'needs_payment' ||
 		                  supportState === 'signing' ||
-		                  supportState === 'settling' ||
-		                  (supportKind === 'qa' && !supportMessage.trim())
+		                  supportState === 'settling'
 		                }
 		                style={{ marginTop: '12px', background: 'var(--primary)', color: 'var(--primary-text)', width: '100%' }}
 		              >
@@ -1351,9 +1259,7 @@ export default function Viewer() {
 	                  ? 'Signing...'
 	                  : supportState === 'settling'
 	                  ? 'Settling...'
-	                  : supportKind === 'donation'
-	                  ? `Donate $${donationAmount}`
-	                  : 'Submit Question'}
+	                  : `Donate $${donationAmount}`}
 	              </button>
 
 		              {supportState !== 'idle' && (
@@ -1364,7 +1270,7 @@ export default function Viewer() {
 	                    {supportState === 'settling' && 'Settling payment...'}
 	                    {supportState === 'done' && supportResult && (
 	                      <>
-	                        {supportKind === 'donation' ? 'Thanks!' : 'Question submitted!'} TX:{' '}
+	                        Thanks! TX:{' '}
 		                        <a
 		                          href={`https://explorer.cronos.org/testnet/tx/${supportResult.txHash}`}
 		                          target="_blank"
