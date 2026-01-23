@@ -96,7 +96,7 @@ export default function Home() {
                 textDecoration: 'none',
               }}
             >
-              Open Streamer Dashboard
+              Open Dashboard
             </Link>
           </div>
         </div>

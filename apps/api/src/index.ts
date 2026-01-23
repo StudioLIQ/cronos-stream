@@ -34,11 +34,11 @@ app.use('/api', publicRoutes);
 // Paywalled routes
 app.use('/api', paywalledRoutes);
 
-// Dashboard routes (auth required)
-app.use('/api', dashboardRoutes);
-
 // Profile routes (public, for wallet-signed nickname updates)
 app.use('/api', profileRoutes);
+
+// Dashboard routes (auth required)
+app.use('/api', dashboardRoutes);
 
 // SSE endpoints
 app.get('/api/channels/:slug/stream/overlay', async (req, res, next) => {

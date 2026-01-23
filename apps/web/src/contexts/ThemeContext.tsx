@@ -18,11 +18,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const stored = localStorage.getItem(THEME_KEY) as Theme | null;
     if (stored === 'dark' || stored === 'light') return stored;
 
-    // Check system preference
-    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
-      return 'light';
-    }
-
     return 'dark';
   });
 
