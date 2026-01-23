@@ -10,6 +10,9 @@ const router = Router();
 
 const ERC20_BALANCE_ABI = ['function balanceOf(address owner) view returns (uint256)'] as const;
 
+const sharedProviderByNetwork = new Map<string, JsonRpcProvider>();
+const sharedUsdcTokenByNetwork = new Map<string, Contract>();
+
 async function mapWithConcurrency<T, R>(
   items: T[],
   concurrency: number,
@@ -64,6 +67,17 @@ interface ChannelRow {
   createdAt: string;
   updatedAt: string;
 }
+
+type ChannelWalletResponse = {
+  slug: string;
+  payToAddress: string;
+  network: string;
+  chainId: number | null;
+  usdcAddress: string | null;
+  usdcBalanceBaseUnits: string | null;
+  usdcBalanceError: string | null;
+  checkedAt: number;
+};
 
 interface ActionRow {
   id: string;
@@ -170,6 +184,66 @@ router.get('/channels/:slug', async (req, res, next) => {
       network: channel.network,
       streamEmbedUrl: channel.streamEmbedUrl,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/channels/:slug/wallet - Get channel wallet + USDC balance (public; best-effort)
+router.get('/channels/:slug/wallet', async (req, res, next) => {
+  try {
+    const { slug } = req.params;
+
+    const channel = await queryOne<Pick<ChannelRow, 'slug' | 'payToAddress' | 'network'>>(
+      'SELECT slug, payToAddress, network FROM channels WHERE slug = ?',
+      [slug]
+    );
+
+    if (!channel) {
+      res.status(404).json({ error: 'Channel not found' });
+      return;
+    }
+
+    const network = channel.network || config.defaultNetwork;
+
+    let usdcBalanceBaseUnits: string | null = null;
+    let usdcBalanceError: string | null = null;
+    let chainId: number | null = null;
+    let usdcAddress: string | null = null;
+
+    try {
+      const networkConfig = getNetworkConfig(network);
+      chainId = networkConfig.chainId;
+      usdcAddress = networkConfig.usdcAddress;
+
+      let provider = sharedProviderByNetwork.get(network);
+      if (!provider) {
+        provider = new JsonRpcProvider(networkConfig.rpc, networkConfig.chainId);
+        sharedProviderByNetwork.set(network, provider);
+      }
+
+      let token = sharedUsdcTokenByNetwork.get(network);
+      if (!token) {
+        token = new Contract(networkConfig.usdcAddress, ERC20_BALANCE_ABI, provider);
+        sharedUsdcTokenByNetwork.set(network, token);
+      }
+
+      const balance = (await token.balanceOf(channel.payToAddress)) as bigint;
+      usdcBalanceBaseUnits = balance.toString();
+    } catch (err) {
+      usdcBalanceError = (err as Error).message;
+    }
+
+    res.json({
+      slug: channel.slug,
+      payToAddress: channel.payToAddress,
+      network,
+      chainId,
+      usdcAddress,
+      usdcBalanceBaseUnits,
+      usdcBalanceError,
+      checkedAt: Date.now(),
+    } satisfies ChannelWalletResponse);
   } catch (err) {
     next(err);
   }

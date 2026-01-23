@@ -8,6 +8,17 @@ export interface Channel {
   streamEmbedUrl?: string | null;
 }
 
+export interface ChannelWallet {
+  slug: string;
+  payToAddress: string;
+  network: string;
+  chainId: number | null;
+  usdcAddress: string | null;
+  usdcBalanceBaseUnits: string | null;
+  usdcBalanceError: string | null;
+  checkedAt: number;
+}
+
 export type StreamStatusResponse =
   | { ok: true; status: 'unconfigured'; checkedAt: string }
   | {
@@ -76,6 +87,15 @@ export async function fetchChannel(slug: string): Promise<Channel> {
   const res = await fetch(`${API_BASE}/channels/${slug}`);
   if (!res.ok) throw new Error('Channel not found');
   return res.json();
+}
+
+export async function fetchChannelWallet(slug: string): Promise<ChannelWallet> {
+  const res = await fetch(`${API_BASE}/channels/${slug}/wallet`);
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(extractErrorMessage(data, 'Failed to fetch channel wallet'));
+  }
+  return data as ChannelWallet;
 }
 
 export async function fetchStreamStatus(slug: string): Promise<StreamStatusResponse> {

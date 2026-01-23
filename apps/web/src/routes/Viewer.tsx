@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   fetchChannel,
+  fetchChannelWallet,
   fetchActions,
   fetchStreamStatus,
   triggerAction,
@@ -16,6 +17,7 @@ import {
 } from '../lib/api';
 import type {
   Channel,
+  ChannelWallet,
   Action,
   StreamStatusResponse,
   PaymentResponse,
@@ -45,6 +47,12 @@ interface PaymentResult {
   txHash: string;
   from: string;
   value: string;
+}
+
+function formatAddress(address: string): string {
+  if (!address) return '—';
+  if (address.length <= 12) return address;
+  return `${address.slice(0, 6)}…${address.slice(-4)}`;
 }
 
 function parseUsdcToBaseUnits(input: string): { ok: true; baseUnits: string } | { ok: false; error: string } {
@@ -80,12 +88,14 @@ export default function Viewer() {
     isConnected: isWalletConnected,
     isConnecting: isWalletConnecting,
     connect: connectWallet,
-  } = useWallet();
-  const [channel, setChannel] = useState<Channel | null>(null);
-  const [actions, setActions] = useState<Action[]>([]);
-  const [streamStatus, setStreamStatus] = useState<StreamStatusResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+	  } = useWallet();
+	  const [channel, setChannel] = useState<Channel | null>(null);
+	  const [channelWallet, setChannelWallet] = useState<ChannelWallet | null>(null);
+	  const [isChannelWalletLoading, setIsChannelWalletLoading] = useState(false);
+	  const [actions, setActions] = useState<Action[]>([]);
+	  const [streamStatus, setStreamStatus] = useState<StreamStatusResponse | null>(null);
+	  const [loading, setLoading] = useState(true);
+	  const [error, setError] = useState<string | null>(null);
 
   // Support state (Donate + Q&A)
   const [supportKind, setSupportKind] = useState<SupportKind>('donation');
@@ -154,11 +164,41 @@ export default function Viewer() {
         setError(err.message);
         setLoading(false);
       });
-  }, [slug]);
+	  }, [slug]);
 
-  // Best-effort stream status (used to resolve live_stream -> concrete videoId, and block entry if offline)
-  useEffect(() => {
-    if (!slug) return;
+	  // Best-effort channel wallet USDC balance (public; refreshes every 15s)
+	  useEffect(() => {
+	    if (!slug) return;
+
+	    let cancelled = false;
+
+	    const refresh = async () => {
+	      setIsChannelWalletLoading(true);
+	      try {
+	        const data = await fetchChannelWallet(slug);
+	        if (cancelled) return;
+	        setChannelWallet(data);
+	      } catch {
+	        if (cancelled) return;
+	        setChannelWallet(null);
+	      } finally {
+	        if (cancelled) return;
+	        setIsChannelWalletLoading(false);
+	      }
+	    };
+
+	    refresh();
+	    const id = window.setInterval(refresh, 15_000);
+
+	    return () => {
+	      cancelled = true;
+	      window.clearInterval(id);
+	    };
+	  }, [slug]);
+
+	  // Best-effort stream status (used to resolve live_stream -> concrete videoId, and block entry if offline)
+	  useEffect(() => {
+	    if (!slug) return;
 
     let cancelled = false;
     setStreamStatus(null);
@@ -257,10 +297,10 @@ export default function Viewer() {
     refreshMySupports();
   }, [slug, walletAddress]);
 
-  const handleCopyTxHash = async (txHash: string) => {
-    const success = await copyToClipboard(txHash);
-    if (success) {
-      addToast('Transaction hash copied to clipboard', 'success');
+	  const handleCopyTxHash = async (txHash: string) => {
+	    const success = await copyToClipboard(txHash);
+	    if (success) {
+	      addToast('Transaction hash copied to clipboard', 'success');
     } else {
       addToast('Failed to copy to clipboard', 'error');
     }
@@ -501,11 +541,11 @@ export default function Viewer() {
 	        </div>
 	      </div>
     );
-  }
+	  }
 
-  const featured = slug ? getFeaturedStreamBySlug(slug) : undefined;
-  const resolvedEmbed = streamStatus?.ok && streamStatus.status === 'live' ? streamStatus.embedUrl : null;
-  const streamInput = resolvedEmbed || channel?.streamEmbedUrl || featured?.youtube.url || null;
+	  const featured = slug ? getFeaturedStreamBySlug(slug) : undefined;
+	  const resolvedEmbed = streamStatus?.ok && streamStatus.status === 'live' ? streamStatus.embedUrl : null;
+	  const streamInput = resolvedEmbed || channel?.streamEmbedUrl || featured?.youtube.url || null;
   const embedUrl = streamInput ? toYouTubeEmbedUrl(streamInput) : null;
   const autoplayUrl = embedUrl
     ? (() => {
@@ -521,26 +561,67 @@ export default function Viewer() {
       })()
     : null;
 
-  if (!channel) {
-    return (
-      <div>
-        <TopNav />
-        <div className="container"><p>Channel not found</p></div>
+	  if (!channel) {
+	    return (
+	      <div>
+	        <TopNav />
+	        <div className="container"><p>Channel not found</p></div>
       </div>
     );
-  }
+	  }
 
-  return (
-    <div>
-      <TopNav />
-	      <div className="container">
-		      <header style={{ marginBottom: '24px' }}>
-		        <h1>{channel.displayName}</h1>
-		        <p style={{ color: 'var(--muted)', fontSize: '14px' }}>Network: {channel.network}</p>
-		      </header>
+	  const channelBalanceLabel = channelWallet?.usdcBalanceBaseUnits
+	    ? `$${formatUsdcAmount(channelWallet.usdcBalanceBaseUnits)} USDC`
+	    : isChannelWalletLoading
+	      ? '$… USDC'
+	      : '$— USDC';
 
-	      {error && (
-	        <div className="card" style={{ background: 'var(--danger)', color: '#fff', marginBottom: '16px' }}>
+	  const handleCopyChannelWallet = async () => {
+	    const ok = await copyToClipboard(channel.payToAddress);
+	    addToast(ok ? 'Copied channel wallet address' : 'Failed to copy channel wallet address', ok ? 'success' : 'error');
+	  };
+
+	  return (
+	    <div>
+	      <TopNav />
+		      <div className="container">
+			      <header style={{ marginBottom: '24px' }}>
+			        <h1>{channel.displayName}</h1>
+			        <p style={{ color: 'var(--muted)', fontSize: '14px' }}>Network: {channel.network}</p>
+			        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '10px' }}>
+			          <button
+			            onClick={handleCopyChannelWallet}
+			            title={channel.payToAddress}
+			            style={{
+			              background: 'transparent',
+			              border: '1px solid var(--border)',
+			              padding: '8px 12px',
+			              borderRadius: '999px',
+			              fontSize: '13px',
+			              color: 'var(--muted)',
+			            }}
+			          >
+			            Wallet: {formatAddress(channel.payToAddress)} Copy
+			          </button>
+			          <div
+			            title={channelWallet?.usdcBalanceError || undefined}
+			            style={{
+			              background: 'var(--panel-2)',
+			              border: '1px solid var(--border)',
+			              padding: '8px 12px',
+			              borderRadius: '999px',
+			              fontSize: '13px',
+			              color: 'var(--text)',
+			              userSelect: 'none',
+			            }}
+			          >
+			            {channelBalanceLabel}
+			          </div>
+			        </div>
+			      </header>
+
+		      {error && (
+		        <div className="card" style={{ background: 'var(--danger)', color: '#fff', marginBottom: '16px' }}>
 	          <p>{error}</p>
 	          <button onClick={() => setError(null)} style={{ marginTop: '8px', background: '#fff', color: '#000' }}>
 	            Dismiss
