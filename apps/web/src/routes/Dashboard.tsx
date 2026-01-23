@@ -104,6 +104,16 @@ export default function Dashboard() {
     return { totalReceived, totalBalanceKnown, balanceKnownCount };
   }, [data]);
 
+  const rankedChannels = useMemo(() => {
+    if (!data) return [];
+    return [...data.channels].sort((a, b) => {
+      const aTotal = safeBigInt(a.totalSettledValueBaseUnits);
+      const bTotal = safeBigInt(b.totalSettledValueBaseUnits);
+      if (aTotal === bTotal) return a.displayName.localeCompare(b.displayName);
+      return aTotal > bTotal ? -1 : 1;
+    });
+  }, [data]);
+
   const generatedAt = data?.generatedAt ? new Date(data.generatedAt).toLocaleString() : null;
 
   const handleCopyAddress = async (address: string) => {
@@ -229,9 +239,10 @@ export default function Dashboard() {
         {data && data.channels.length > 0 && (
           <div className="card">
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '980px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '1040px' }}>
                 <thead>
                   <tr style={{ textAlign: 'left', color: 'var(--muted)', fontSize: '12px' }}>
+                    <th style={{ padding: '10px 12px' }}>#</th>
                     <th style={{ padding: '10px 12px' }}>Streamer</th>
                     <th style={{ padding: '10px 12px' }}>Total received</th>
                     <th style={{ padding: '10px 12px' }}>USDC balance</th>
@@ -242,8 +253,11 @@ export default function Dashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.channels.map((ch) => (
+                  {rankedChannels.map((ch, index) => (
                     <tr key={ch.slug} style={{ borderTop: '1px solid var(--border)' }}>
+                      <td style={{ padding: '12px', color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>
+                        {index + 1}
+                      </td>
                       <td style={{ padding: '12px' }}>
                         <div style={{ fontWeight: 800 }}>{ch.displayName}</div>
                         <div style={{ marginTop: '4px', color: 'var(--muted)', fontSize: '12px' }}>

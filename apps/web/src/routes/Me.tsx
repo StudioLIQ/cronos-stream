@@ -117,7 +117,7 @@ export default function Me() {
       <TopNav />
       <div className="container">
         <header style={{ marginBottom: '24px' }}>
-          <h1>Dashboard</h1>
+          <h1>My Page</h1>
           <p style={{ color: 'var(--muted)', fontSize: '14px' }}>Your supports and memberships across channels.</p>
         </header>
 
