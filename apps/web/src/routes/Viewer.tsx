@@ -1016,39 +1016,44 @@ export default function Viewer() {
 	                  description="This channel hasn't set up any paid effects yet. Check back later or try donating."
 	                />
 	              </div>
-	            ) : !isWalletConnected ? (
-	              <div className="card" style={{ marginTop: '12px' }}>
-	                <p style={{ color: 'var(--muted)', fontSize: '14px', marginBottom: '12px' }}>
-	                  Connect your wallet to trigger effects.
-	                </p>
-	                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-	                  {actions.slice(0, 3).map((action) => (
-	                    <div
-	                      key={action.actionKey}
-	                      style={{
-	                        display: 'flex',
-	                        justifyContent: 'space-between',
-	                        alignItems: 'center',
-	                        padding: '10px 12px',
-	                        background: 'var(--panel-2)',
-	                        border: '1px solid var(--border)',
-	                        borderRadius: '8px',
-	                        fontSize: '13px',
-	                      }}
-	                    >
-	                      <span style={{ fontWeight: 600 }}>{action.actionKey}</span>
-	                      <span style={{ color: 'var(--muted)' }}>${formatUsdcAmount(action.priceBaseUnits)}</span>
-	                    </div>
-	                  ))}
-	                  {actions.length > 3 && (
-	                    <p style={{ marginTop: '4px', color: 'var(--muted)', fontSize: '12px' }}>
-	                      +{actions.length - 3} more effect{actions.length - 3 === 1 ? '' : 's'}
-	                    </p>
-	                  )}
-	                </div>
-	                <button
-	                  onClick={handleConnectWallet}
-	                  disabled={isWalletConnecting}
+		            ) : !isWalletConnected ? (
+		              <div className="card" style={{ marginTop: '12px' }}>
+		                <p style={{ color: 'var(--muted)', fontSize: '14px', marginBottom: '12px' }}>
+		                  Connect your wallet to trigger effects.
+		                </p>
+		                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(56px, 1fr))', gap: '10px' }}>
+		                  {actions.slice(0, 8).map((action) => {
+		                    const label = `${action.actionKey} · $${formatUsdcAmount(action.priceBaseUnits)} USDC`;
+		                    return (
+		                      <div
+		                        key={action.actionKey}
+		                        title={label}
+		                        style={{
+		                          height: 56,
+		                          background: 'var(--panel-2)',
+		                          border: '1px solid var(--border)',
+		                          borderRadius: '12px',
+		                          display: 'grid',
+		                          placeItems: 'center',
+		                          opacity: 0.75,
+		                          userSelect: 'none',
+		                        }}
+		                      >
+		                        <span style={{ fontSize: '22px', lineHeight: 1 }}>
+		                          {action.type === 'sticker' ? '🖼️' : action.type === 'sound' ? '🔊' : '⚡'}
+		                        </span>
+		                      </div>
+		                    );
+		                  })}
+		                </div>
+		                {actions.length > 8 && (
+		                    <p style={{ marginTop: '4px', color: 'var(--muted)', fontSize: '12px' }}>
+		                      +{actions.length - 8} more effect{actions.length - 8 === 1 ? '' : 's'}
+		                    </p>
+		                  )}
+		                <button
+		                  onClick={handleConnectWallet}
+		                  disabled={isWalletConnecting}
 	                  style={{
 	                    marginTop: '12px',
 	                    background: 'var(--primary)',
@@ -1059,48 +1064,45 @@ export default function Viewer() {
 	                  {isWalletConnecting ? 'Connecting...' : 'Connect Wallet'}
 	                </button>
 	              </div>
-	            ) : (
-	              <div
-	                style={{
-	                  display: 'grid',
-	                  gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
-	                  gap: '12px',
-	                  marginTop: '12px',
-	                }}
-	              >
-	                {actions.map((action) => (
-	                  <button
-	                    key={action.actionKey}
-	                    onClick={() => handleTriggerAction(action.actionKey)}
-	                    disabled={!isWalletConnected || paymentState === 'signing' || paymentState === 'settling'}
-	                    style={{
-	                      padding: '16px',
-	                      background:
-	                        activeAction === action.actionKey && paymentState !== 'idle' && paymentState !== 'done'
-	                          ? '#f59e0b'
-	                          : 'var(--panel-2)',
-	                      color:
-	                        activeAction === action.actionKey && paymentState !== 'idle' && paymentState !== 'done'
-	                          ? 'var(--primary-text)'
-	                          : 'var(--text)',
-	                      border: '1px solid var(--border)',
-	                      display: 'flex',
-	                      flexDirection: 'column',
-	                      alignItems: 'center',
-	                      gap: '8px',
-	                    }}
-	                  >
-	                    <span style={{ fontSize: '24px' }}>
-	                      {action.type === 'sticker' ? '🖼️' : action.type === 'sound' ? '🔊' : '⚡'}
-	                    </span>
-	                    <span>{action.actionKey}</span>
-	                    <span style={{ fontSize: '12px', color: 'var(--muted)' }}>
-	                      ${formatUsdcAmount(action.priceBaseUnits)} USDC
-	                    </span>
-	                  </button>
-	                ))}
-	              </div>
-	            )}
+		            ) : (
+		              <div
+		                style={{
+		                  display: 'grid',
+		                  gridTemplateColumns: 'repeat(auto-fill, minmax(56px, 1fr))',
+		                  gap: '10px',
+		                  marginTop: '12px',
+		                }}
+		              >
+		                {actions.map((action) => {
+		                  const label = `${action.actionKey} · $${formatUsdcAmount(action.priceBaseUnits)} USDC`;
+		                  const isPending =
+		                    activeAction === action.actionKey && paymentState !== 'idle' && paymentState !== 'done';
+		                  return (
+		                    <button
+		                      key={action.actionKey}
+		                      onClick={() => handleTriggerAction(action.actionKey)}
+		                      disabled={!isWalletConnected || paymentState === 'signing' || paymentState === 'settling'}
+		                      title={label}
+		                      aria-label={label}
+		                      style={{
+		                        height: 56,
+		                        background: isPending ? '#f59e0b' : 'var(--panel-2)',
+		                        color: isPending ? 'var(--primary-text)' : 'var(--text)',
+		                        border: '1px solid var(--border)',
+		                        borderRadius: '12px',
+		                        display: 'grid',
+		                        placeItems: 'center',
+		                        cursor: 'pointer',
+		                      }}
+		                    >
+		                      <span style={{ fontSize: '22px', lineHeight: 1 }}>
+		                        {action.type === 'sticker' ? '🖼️' : action.type === 'sound' ? '🔊' : '⚡'}
+		                      </span>
+		                    </button>
+		                  );
+		                })}
+		              </div>
+		            )}
 
 	            {paymentState !== 'idle' && (
 	              <div className="card" style={{ marginTop: '16px' }}>
