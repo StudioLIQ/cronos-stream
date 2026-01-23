@@ -38,8 +38,9 @@ export interface SettleSuccessResponse {
   from: string;
   to: string;
   value: string;
-  blockNumber: number;
-  timestamp: number;
+  // Facilitator implementations vary: some return numbers, others return strings (ISO or unix).
+  blockNumber: number | string;
+  timestamp: number | string;
 }
 
 export interface SettleFailureResponse {

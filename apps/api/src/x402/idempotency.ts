@@ -20,8 +20,8 @@ export interface StoredPayment {
   txHash: string | null;
   nftTxHash: string | null;
   nftError: string | null;
-  blockNumber: number | null;
-  timestamp: number | null;
+  blockNumber: string | null;
+  timestamp: string | null;
   error: string | null;
   kind: PaymentKind | null;
   actionKey: string | null;
@@ -124,22 +124,47 @@ export async function markPaymentSettled(
   paymentId: string,
   settleResult: SettleSuccessResponse
 ): Promise<void> {
-  // Be defensive: facilitator responses may omit blockNumber/timestamp in some cases.
+  // Be defensive: facilitator responses can evolve (string timestamps, missing fields, nested receipts).
   // mysql2 throws if a bound parameter is `undefined`, so normalize to null.
-  const blockNumberRaw = (settleResult as unknown as { blockNumber?: unknown }).blockNumber;
-  const timestampRaw = (settleResult as unknown as { timestamp?: unknown }).timestamp;
+  const raw = settleResult as unknown as Record<string, unknown>;
 
-  const blockNumber =
-    typeof blockNumberRaw === 'number' || typeof blockNumberRaw === 'string' ? blockNumberRaw : null;
-  const timestamp =
-    typeof timestampRaw === 'number' || typeof timestampRaw === 'string' ? timestampRaw : null;
+  const txHashRaw =
+    (typeof raw.txHash === 'string' && raw.txHash) ||
+    (typeof raw.txhash === 'string' && raw.txhash) ||
+    (typeof raw.transactionHash === 'string' && raw.transactionHash) ||
+    (typeof raw.hash === 'string' && raw.hash) ||
+    (typeof (raw.receipt as Record<string, unknown> | undefined)?.transactionHash === 'string' &&
+      ((raw.receipt as Record<string, unknown>).transactionHash as string)) ||
+    null;
 
-  if (blockNumber === null || timestamp === null) {
-    logger.warn('Settle success missing receipt fields (blockNumber/timestamp)', {
+  const blockNumberRaw =
+    raw.blockNumber ??
+    (raw.block_number as unknown) ??
+    (raw.receipt as Record<string, unknown> | undefined)?.blockNumber ??
+    (raw.receipt as Record<string, unknown> | undefined)?.block_number ??
+    null;
+
+  const timestampRaw =
+    raw.timestamp ??
+    (raw.blockTimestamp as unknown) ??
+    (raw.block_timestamp as unknown) ??
+    (raw.receipt as Record<string, unknown> | undefined)?.timestamp ??
+    (raw.receipt as Record<string, unknown> | undefined)?.blockTimestamp ??
+    (raw.receipt as Record<string, unknown> | undefined)?.block_timestamp ??
+    null;
+
+  const blockNumber = normalizeIntegerString(blockNumberRaw);
+  const normalizedTimestamp = normalizeTimestampSeconds(timestampRaw);
+  const timestamp = normalizedTimestamp ?? currentEpochSeconds();
+
+  if (txHashRaw === null) {
+    logger.warn('Settle success missing txHash; storing null', { paymentId, txHash: null });
+  }
+  if (normalizedTimestamp === null) {
+    logger.warn('Settle success missing/unparseable timestamp; using server time', {
       paymentId,
-      txHash: settleResult.txHash,
-      blockNumber: blockNumberRaw ?? null,
-      timestamp: timestampRaw ?? null,
+      timestampRaw: timestampRaw ?? null,
+      timestamp,
     });
   }
 
@@ -147,14 +172,59 @@ export async function markPaymentSettled(
     `UPDATE payments SET status = 'settled', txHash = ?, blockNumber = ?, timestamp = ?
      WHERE paymentId = ?`,
     [
-      settleResult.txHash,
+      txHashRaw,
       blockNumber,
       timestamp,
       paymentId,
     ]
   );
 
-  logger.info('Marked payment as settled', { paymentId, txHash: settleResult.txHash });
+  logger.info('Marked payment as settled', { paymentId, txHash: txHashRaw });
+}
+
+function currentEpochSeconds(): string {
+  return Math.floor(Date.now() / 1000).toString();
+}
+
+function normalizeIntegerString(value: unknown): string | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.floor(value).toString();
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (/^\d+$/.test(trimmed)) return trimmed;
+  }
+  return null;
+}
+
+function normalizeTimestampSeconds(value: unknown): string | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    // Heuristic: values > 10^10 are very likely milliseconds.
+    const seconds = value > 10_000_000_000 ? Math.floor(value / 1000) : Math.floor(value);
+    return seconds.toString();
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    if (/^\d+$/.test(trimmed)) {
+      try {
+        const n = BigInt(trimmed);
+        const seconds = n > 10_000_000_000n ? n / 1000n : n;
+        return seconds.toString();
+      } catch {
+        return null;
+      }
+    }
+
+    const ms = Date.parse(trimmed);
+    if (!Number.isFinite(ms)) return null;
+    return Math.floor(ms / 1000).toString();
+  }
+
+  return null;
 }
 
 export async function markPaymentFailed(paymentId: string, error: string): Promise<void> {
