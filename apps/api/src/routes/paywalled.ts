@@ -278,6 +278,22 @@ function calculateGoalProgress(current: string, target: string): number {
   }
 }
 
+function normalizeBlockNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!/^\d+$/.test(trimmed)) return undefined;
+    try {
+      const big = BigInt(trimmed);
+      if (big > BigInt(Number.MAX_SAFE_INTEGER)) return undefined;
+      return Number(big);
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
 const router = Router();
 
 function getPaymentHeader(req: Request): string | undefined {
@@ -445,14 +461,14 @@ router.post('/channels/:slug/trigger', async (req: Request, res: Response, next:
     res.json({
       ok: true,
       payment: {
-        paymentId,
-        txHash: settleResult.txHash,
-        from: settleResult.from,
-        to: settleResult.to,
-        value: settleResult.value,
-        blockNumber: settleResult.blockNumber,
-      },
-    });
+      paymentId,
+      txHash: settleResult.txHash,
+      from: settleResult.from,
+      to: settleResult.to,
+      value: settleResult.value,
+      blockNumber: normalizeBlockNumber(settleResult.blockNumber),
+    },
+  });
   } catch (err) {
     next(err);
   }
@@ -654,14 +670,14 @@ router.post('/channels/:slug/qa', async (req: Request, res: Response, next: Next
       ok: true,
       qaId,
       payment: {
-        paymentId,
-        txHash: settleResult.txHash,
-        from: settleResult.from,
-        to: settleResult.to,
-        value: settleResult.value,
-        blockNumber: settleResult.blockNumber,
-      },
-    });
+      paymentId,
+      txHash: settleResult.txHash,
+      from: settleResult.from,
+      to: settleResult.to,
+      value: settleResult.value,
+      blockNumber: normalizeBlockNumber(settleResult.blockNumber),
+    },
+  });
   } catch (err) {
     next(err);
   }
@@ -849,14 +865,14 @@ router.post('/channels/:slug/donate', async (req: Request, res: Response, next: 
     res.json({
       ok: true,
       payment: {
-        paymentId,
-        txHash: settleResult.txHash,
-        from: settleResult.from,
-        to: settleResult.to,
-        value: settleResult.value,
-        blockNumber: settleResult.blockNumber,
-      },
-    });
+      paymentId,
+      txHash: settleResult.txHash,
+      from: settleResult.from,
+      to: settleResult.to,
+      value: settleResult.value,
+      blockNumber: normalizeBlockNumber(settleResult.blockNumber),
+    },
+  });
   } catch (err) {
     next(err);
   }
@@ -1186,7 +1202,7 @@ router.post('/channels/:slug/memberships', async (req: Request, res: Response, n
         from: settleResult.from,
         to: settleResult.to,
         value: settleResult.value,
-        blockNumber: settleResult.blockNumber,
+        blockNumber: normalizeBlockNumber(settleResult.blockNumber),
       },
       nft: nftInfo,
     });
