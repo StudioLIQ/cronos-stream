@@ -955,12 +955,6 @@ export default function Viewer() {
 
 	          <section style={{ marginTop: '24px' }}>
 	            <h2>Effects</h2>
-	            <p style={{ marginTop: '8px', color: 'var(--muted)', fontSize: '14px' }}>
-	              Effects appear on the streamer overlay:{' '}
-	              <a href={`/o/${slug}`} style={{ color: 'var(--accent-text)' }}>
-	                /o/{slug}
-	              </a>
-	            </p>
 	            {actions.length === 0 ? (
 	              <div className="card" style={{ marginTop: '12px' }}>
 	                <EmptyState
