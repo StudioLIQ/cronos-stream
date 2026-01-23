@@ -82,6 +82,23 @@ export default function Home() {
           <p style={{ fontSize: '18px', color: 'var(--muted)', lineHeight: 1.6 }}>
             Let viewers support you with USDC payments. Effects, Q&A, donations - all settled on-chain via x402.
           </p>
+          <div style={{ marginTop: '22px', display: 'flex', justifyContent: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <Link
+              to="/dashboard"
+              style={{
+                background: 'var(--primary)',
+                color: 'var(--primary-text)',
+                border: '1px solid transparent',
+                padding: '10px 14px',
+                borderRadius: '10px',
+                fontSize: '14px',
+                fontWeight: 600,
+                textDecoration: 'none',
+              }}
+            >
+              Open Streamer Dashboard
+            </Link>
+          </div>
         </div>
       </section>
 

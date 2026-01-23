@@ -63,19 +63,14 @@ export default function Dashboard() {
   const [autoRefresh, setAutoRefresh] = useState(true);
 
   const fetchOverview = useCallback(async () => {
-    if (!dashboardToken) {
-      setData(null);
-      setError(null);
-      return;
-    }
-
     setLoading(true);
     setError(null);
 
     try {
-      const res = await fetch(`${API_BASE}/dashboard/overview`, {
-        headers: buildDashboardAuthHeaders(dashboardToken),
-      });
+      const res = await fetch(
+        `${API_BASE}/dashboard/overview`,
+        dashboardToken ? { headers: buildDashboardAuthHeaders(dashboardToken) } : undefined
+      );
       if (!res.ok) {
         if (res.status === 401 || res.status === 403) {
           throw new Error('Dashboard token is missing or invalid.');
@@ -96,7 +91,7 @@ export default function Dashboard() {
   }, [fetchOverview]);
 
   useEffect(() => {
-    if (!autoRefresh || !dashboardToken) return;
+    if (!autoRefresh) return;
     const id = window.setInterval(fetchOverview, 15_000);
     return () => window.clearInterval(id);
   }, [autoRefresh, fetchOverview]);
@@ -131,7 +126,6 @@ export default function Dashboard() {
     clearStoredDashboardToken();
     setDashboardToken(null);
     setTokenInput('');
-    setData(null);
     setError(null);
     addToast('Dashboard token cleared', 'info');
   };
@@ -159,7 +153,7 @@ export default function Dashboard() {
             </label>
             <button
               onClick={fetchOverview}
-              disabled={loading || !dashboardToken}
+              disabled={loading}
               style={{ background: 'var(--primary)', color: 'var(--primary-text)' }}
             >
               {loading ? 'Refreshing…' : 'Refresh'}
@@ -168,9 +162,9 @@ export default function Dashboard() {
         </div>
 
         <div className="card" style={{ marginBottom: '16px' }}>
-          <div style={{ fontWeight: 800 }}>Dashboard token</div>
+          <div style={{ fontWeight: 800 }}>Dashboard token (optional)</div>
           <div style={{ marginTop: '6px', color: 'var(--muted)', fontSize: '13px' }}>
-            Required for streamer/admin endpoints. Stored in your browser (localStorage). Default: <code>demo-token</code>
+            Optional for this overview. Required for streamer/admin pages (e.g. support history). Stored in your browser (localStorage). Default: <code>demo-token</code>
           </div>
           <div style={{ marginTop: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
             <input
@@ -298,15 +292,15 @@ export default function Dashboard() {
                           <Link to={`/v/${encodeURIComponent(ch.slug)}`} style={{ color: 'var(--accent-text)', fontSize: '13px' }}>
                             Viewer
                           </Link>
-                          <Link to={`/o/${encodeURIComponent(ch.slug)}`} style={{ color: 'var(--accent-text)', fontSize: '13px' }}>
-                            Overlay
-                          </Link>
-                          <Link to={`/d/${encodeURIComponent(ch.slug)}/supports`} style={{ color: 'var(--accent-text)', fontSize: '13px' }}>
-                            Supports
-                          </Link>
-                        </div>
-                      </td>
-                    </tr>
+	                          <Link to={`/o/${encodeURIComponent(ch.slug)}`} style={{ color: 'var(--accent-text)', fontSize: '13px' }}>
+	                            Overlay
+	                          </Link>
+	                          <Link to={`/dashboard/${encodeURIComponent(ch.slug)}/supports`} style={{ color: 'var(--accent-text)', fontSize: '13px' }}>
+	                            Supports
+	                          </Link>
+	                        </div>
+	                      </td>
+	                    </tr>
                   ))}
                 </tbody>
               </table>

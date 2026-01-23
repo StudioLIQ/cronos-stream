@@ -21,7 +21,7 @@ export function CommandPalette() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Extract slug from current path
-  const pathMatch = location.pathname.match(/\/[vod]\/([^/]+)/);
+  const pathMatch = location.pathname.match(/\/(?:v|o|d|dashboard)\/([^/]+)/);
   const currentSlug = pathMatch ? pathMatch[1] : 'demo';
 
   const commands: Command[] = [
@@ -47,20 +47,20 @@ export function CommandPalette() {
       action: () => navigate(`/o/${currentSlug}`),
       category: 'navigation',
     },
-	    {
-	      id: 'dashboard',
-	      label: 'Go to Dashboard',
-	      shortcut: 'G D',
-	      action: () => navigate('/d'),
-	      category: 'navigation',
-	    },
-      {
-        id: 'supports',
-        label: `Go to Supports (${currentSlug})`,
-        shortcut: 'G S',
-        action: () => navigate(`/d/${currentSlug}/supports`),
-        category: 'navigation',
-      },
+		    {
+		      id: 'dashboard',
+		      label: 'Go to Dashboard',
+		      shortcut: 'G D',
+		      action: () => navigate('/dashboard'),
+		      category: 'navigation',
+		    },
+	      {
+	        id: 'supports',
+	        label: `Go to Supports (${currentSlug})`,
+	        shortcut: 'G S',
+	        action: () => navigate(`/dashboard/${currentSlug}/supports`),
+	        category: 'navigation',
+	      },
 	    {
 	      id: 'me',
 	      label: 'Go to My Page',

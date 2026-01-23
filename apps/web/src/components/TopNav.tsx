@@ -202,6 +202,23 @@ Expires At: ${nonceData.expiresAt}`;
           />
           Stream402
         </Link>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Link
+            to="/dashboard"
+            style={{
+              background: 'transparent',
+              border: '1px solid var(--border)',
+              padding: '8px 12px',
+              borderRadius: '999px',
+              fontSize: '13px',
+              color: 'var(--muted)',
+              textDecoration: 'none',
+              lineHeight: 1,
+            }}
+          >
+            Dashboard
+          </Link>
+        </div>
         {children || <div style={{ flex: 1 }} />}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           {!isConnected ? (

@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
 import Home from './routes/Home';
 import Viewer from './routes/Viewer';
 import Overlay from './routes/Overlay';
@@ -42,6 +42,11 @@ function ConditionalCommandPalette() {
   return <CommandPalette />;
 }
 
+function LegacySupportsRedirect() {
+  const { slug } = useParams<{ slug: string }>();
+  return <Navigate to={slug ? `/dashboard/${encodeURIComponent(slug)}/supports` : '/dashboard'} replace />;
+}
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
@@ -49,19 +54,21 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <ToastProvider>
         <WalletProvider>
           <BrowserRouter>
-	            <Routes>
-	              <Route path="/" element={<Home />} />
-	              <Route path="/v/:slug" element={<Viewer />} />
-	              <Route path="/o/:slug" element={<Overlay />} />
-	              <Route path="/me" element={<Me />} />
-	              <Route path="/d/:slug/supports" element={<ChannelSupports />} />
-	              <Route path="/d" element={<Dashboard />} />
-	              <Route path="/d/:slug" element={<Navigate to="/d" replace />} />
-	              <Route path="*" element={<Navigate to="/" replace />} />
-	            </Routes>
-            <ConditionalToastHost />
-            <ConditionalStatusBar />
-            <ConditionalCommandPalette />
+		            <Routes>
+		              <Route path="/" element={<Home />} />
+		              <Route path="/v/:slug" element={<Viewer />} />
+		              <Route path="/o/:slug" element={<Overlay />} />
+		              <Route path="/me" element={<Me />} />
+		              <Route path="/dashboard" element={<Dashboard />} />
+		              <Route path="/dashboard/:slug/supports" element={<ChannelSupports />} />
+		              <Route path="/d" element={<Navigate to="/dashboard" replace />} />
+		              <Route path="/d/:slug/supports" element={<LegacySupportsRedirect />} />
+		              <Route path="/d/:slug" element={<Navigate to="/dashboard" replace />} />
+		              <Route path="*" element={<Navigate to="/" replace />} />
+		            </Routes>
+	            <ConditionalToastHost />
+	            <ConditionalStatusBar />
+	            <ConditionalCommandPalette />
           </BrowserRouter>
         </WalletProvider>
       </ToastProvider>

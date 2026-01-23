@@ -198,13 +198,13 @@ export default function ChannelSupports() {
               )}
             </div>
           </div>
-          {slug && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-              <Link to="/d" style={{ color: 'var(--accent-text)', fontSize: '13px' }}>Dashboard</Link>
-              <Link to={`/v/${encodeURIComponent(slug)}`} style={{ color: 'var(--accent-text)', fontSize: '13px' }}>Viewer</Link>
-              <Link to={`/o/${encodeURIComponent(slug)}`} style={{ color: 'var(--accent-text)', fontSize: '13px' }}>Overlay</Link>
-            </div>
-          )}
+	          {slug && (
+	            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+	              <Link to="/dashboard" style={{ color: 'var(--accent-text)', fontSize: '13px' }}>Dashboard</Link>
+	              <Link to={`/v/${encodeURIComponent(slug)}`} style={{ color: 'var(--accent-text)', fontSize: '13px' }}>Viewer</Link>
+	              <Link to={`/o/${encodeURIComponent(slug)}`} style={{ color: 'var(--accent-text)', fontSize: '13px' }}>Overlay</Link>
+	            </div>
+	          )}
         </div>
 
         <div className="card" style={{ marginBottom: '16px' }}>
@@ -436,4 +436,3 @@ export default function ChannelSupports() {
     </div>
   );
 }
-
